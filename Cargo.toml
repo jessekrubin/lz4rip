@@ -1,0 +1,77 @@
+[package]
+name = "lz4rip"
+description = "Rust LZ4 compression. Fast, with encapsulated unsafe."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+repository = "https://github.com/paddor/lz4rip"
+readme = "README.md"
+keywords = ["compression", "lz4", "compress", "decompression", "decompress"]
+include = ["src/**/*", "README.md", "LICENSE", "CHANGELOG.md", "DESIGN.md", "doc/charts/**/*.svg"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "frame"]
+frame = ["std", "dep:twox-hash"]
+std = []
+nightly = []
+
+[dependencies]
+twox-hash = { version = "2.0.0", default-features = false, features = ["xxhash32"], optional = true }
+
+[dev-dependencies]
+lzzzz = "2.0.0"
+more-asserts = "0.3.1"
+snap = "1.1.0"
+proptest = "1.0.0"
+binggan = "0.14.0"
+jemallocator = "0.5.4"
+libc = "0.2"
+
+[dev-dependencies.lz4_flex_upstream]
+git = "https://github.com/PSeitz/lz4_flex"
+package = "lz4_flex"
+
+
+[profile.bench]
+codegen-units = 1
+lto = true
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+
+[[example]]
+name = "quickstart"
+required-features = ["frame"]
+
+[[bench]]
+harness = false
+name = "binggan_bench"
+path = "benches/binggan_bench.rs"
+
+[[bench]]
+harness = false
+name = "profile_decompress"
+path = "benches/profile_decompress.rs"
+
+[[bench]]
+harness = false
+name = "profile_decompress_c"
+path = "benches/profile_decompress_c.rs"
+
+[[bench]]
+harness = false
+name = "profile_compress"
+path = "benches/profile_compress.rs"
+
+[[bench]]
+harness = false
+name = "profile_compress_c"
+path = "benches/profile_compress_c.rs"

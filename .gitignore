@@ -1,0 +1,12 @@
+__pycache__/
+/target
+benchmarks/target
+Cargo.lock
+my-prof.profile
+Session.vim
+/benchmarks/bench_files
+/info/
+/corpus/
+/sweep_bins/
+/sweep_results.json
+*.sweep_bak

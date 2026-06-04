@@ -1,0 +1,81 @@
+
+[package]
+name = "lz4rip-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+lzzzz = "0.8"
+
+lz4rip = { path = "..", default-features = false, features=["frame"] }
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_roundtrip"
+path = "fuzz_targets/fuzz_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_frame"
+path = "fuzz_targets/fuzz_roundtrip_frame.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_cpp_compress"
+path = "fuzz_targets/fuzz_roundtrip_cpp_compress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_cpp_decompress"
+path = "fuzz_targets/fuzz_roundtrip_cpp_decompress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_decomp_corrupt_block"
+path = "fuzz_targets/fuzz_decomp_corrupt_block.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_decomp_corrupt_frame"
+path = "fuzz_targets/fuzz_decomp_corrupt_frame.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_decomp_no_output_leak"
+path = "fuzz_targets/fuzz_decomp_no_output_leak.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_craft_tokens"
+path = "fuzz_targets/fuzz_craft_tokens.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_compress_bitflip"
+path = "fuzz_targets/fuzz_compress_bitflip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_dict"
+path = "fuzz_targets/fuzz_roundtrip_dict.rs"
+test = false
+doc = false
