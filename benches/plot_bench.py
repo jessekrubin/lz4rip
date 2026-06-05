@@ -425,8 +425,8 @@ def summary_chart(results, out_dir):
 
     # bars: 2 groups, n_codecs bars each, with gap between groups
     group_w = plot_w / n_groups
-    bar_w = group_w * 0.7 / n_codecs
-    inner_gap = group_w * 0.1
+    bar_w = min(group_w * 0.7 / n_codecs, 50)
+    inner_gap = bar_w * 0.15
     group_gap = group_w * 0.2
 
     for gi, (group_name, _) in enumerate(groups):
@@ -604,9 +604,9 @@ def dict_chart(results, out_dir):
         decomp = r["decompress_ns"] / 1e9 * per_gb
         bar_data[codec] = (comp, transfer, decomp, r)
 
-    svg_w = 850
+    svg_w = 400
     svg_h = 340
-    x_left, x_right = 70, 830
+    x_left, x_right = 70, 370
     plot_w = x_right - x_left
     y_top = 55 if hw_label else 45
     y_bot = 230
