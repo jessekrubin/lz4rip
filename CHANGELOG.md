@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-05
+
+- Decompress: inline wildcopy for literals (32B chunks) and matches (tiered 8/16/32B), replacing memmove calls
+- Decompress: fast-path-v2 handles short-literal/long-match tokens inline, avoiding the fully bounds-checked slow path
+- Decompress: unified 16B literal / 18B match copy width on both x86_64 and aarch64 (aarch64 geomean vs C lz4: 1.61x -> 1.07x)
+- Decompress: removed dead `wild_copy_32` and `wild_match_copy_32` (aarch64-only, replaced by unified paths)
+- Bench: added lz4_flex unsafe (v0.11, crates.io) as fourth benchmark codec
+- Bench: added `--sweep` mode for input-size sweep charts (64B-1MB synthetic JSON, with/without dict)
+- README: replaced compress_prepend_size example, added function overview, dictionary and frame examples
+
 ## [0.1.0] - 2026-06-05
 
 - Originally derived from PSeitz/lz4_flex
