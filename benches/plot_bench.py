@@ -16,17 +16,19 @@ import tempfile
 from pathlib import Path
 
 
-CODEC_ORDER = ["C lz4", "lz4rip", "lz4_flex"]
+CODEC_ORDER = ["C lz4", "lz4rip", "lz4_flex unsafe", "lz4_flex"]
 
 COLORS = {
     "C lz4":             ("#60a5fa", "#4680c4"),   # blue
     "lz4rip":            ("#f87171", "#c45050"),   # red
+    "lz4_flex unsafe":   ("#f59e0b", "#c47d08"),   # amber
     "lz4_flex":          ("#4ade80", "#3aaf60"),   # green
 }
 
 LABELS = {
     "C lz4":             "lz4 (C)",
     "lz4rip":            "lz4rip (safe Rust)",
+    "lz4_flex unsafe":   "lz4_flex (unsafe Rust)",
     "lz4_flex":          "lz4_flex (safe Rust)",
 }
 
@@ -141,7 +143,7 @@ def pipeline_chart(results, out_dir):
         top_margin,
         top_margin + panel_h + panel_gap,
     ]
-    svg_h = panel_tops[-1] + panel_h + 110
+    svg_h = panel_tops[-1] + panel_h + 120
 
     # compute stacked values: compress + transfer + decompress (seconds per GB)
     # transfer rate: 1000 Mbit/s = 125 MB/s (same assumption as lz4.org)
@@ -269,15 +271,17 @@ def pipeline_chart(results, out_dir):
                 f' fill="#7d8590" font-size="9">{size_label}</text>'
             )
 
-    # legend: codec colors
+    # legend: codec colors (2 columns, lz4_flex variants aligned in right column)
     leg_y = panel_tops[-1] + panel_h + 50
     legend_items = [(k, LABELS[k]) for k in codecs if k in COLORS]
-    col_w = 180
-    row_h = 20
+    row_h = 18
+    leg_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]  # (col, row)
+    leg_col_x = [mid_x - 200, mid_x + 10]
     for i, (key, label) in enumerate(legend_items):
-        col = i % 2
-        row = i // 2
-        lx = mid_x - col_w + col * col_w
+        if i >= len(leg_positions):
+            break
+        col, row = leg_positions[i]
+        lx = leg_col_x[col]
         ly = leg_y + row * row_h
         main_c, xfer_c = COLORS[key]
         L.append(
@@ -286,28 +290,23 @@ def pipeline_chart(results, out_dir):
         )
         L.append(
             f'  <text x="{lx + 18:.0f}" y="{ly + 5}" fill="#e6edf3"'
-            f' font-size="11" font-weight="500">{label}</text>'
+            f' font-size="10" font-weight="500">{label}</text>'
         )
 
-    # legend: stack meaning (bright = compress/decompress, dim = transfer)
-    stack_y = leg_y + row_h * 2 + 4
-    stack_items = [
-        ("compress + decompress", "#e6edf3"),
-        ("transfer (ratio)", "#7d8590"),
+    n_legend_rows = 2
+    # bar segment legend: bright = compress/decompress, dim = transfer
+    seg_y = leg_y + n_legend_rows * row_h + 8
+    seg_items = [
+        ("bright = compress + decompress", "#e6edf3"),
+        ("dim = transfer @1 GB/s", "#7d8590"),
     ]
-    stack_total = 320
-    stack_start = mid_x - stack_total / 2
-
-    for i, (label, fill) in enumerate(stack_items):
-        sx = stack_start + i * 200
-        shades = ["#60a5fa", "#4680c4"]
+    seg_total = 420
+    seg_start = mid_x - seg_total / 2
+    for i, (label, fill) in enumerate(seg_items):
+        sx = seg_start + i * 240
         L.append(
-            f'  <rect x="{sx:.0f}" y="{stack_y - 5}" width="12" height="12"'
-            f' fill="{shades[i]}" rx="2"/>'
-        )
-        L.append(
-            f'  <text x="{sx + 18:.0f}" y="{stack_y + 5}" fill="#7d8590"'
-            f' font-size="10">{label}</text>'
+            f'  <text x="{sx:.0f}" y="{seg_y + 4}" fill="{fill}"'
+            f' font-size="9">{label}</text>'
         )
 
     L.append("</svg>")
@@ -358,7 +357,7 @@ def summary_chart(results, out_dir):
 
     n_groups = len(groups)
     svg_w = 600
-    svg_h = 420
+    svg_h = 460
     x_left, x_right = 70, 570
     plot_w = x_right - x_left
     y_top = 55 if hw_label else 45
@@ -464,15 +463,17 @@ def summary_chart(results, out_dir):
             f' fill="#e6edf3" font-size="11" font-weight="600">{group_name}</text>'
         )
 
-    # legend: codec colors (two rows of two)
+    # legend: codec colors (2 columns, lz4_flex variants aligned in right column)
     leg_y = y_bot + 40
     legend_items = [(k, LABELS[k]) for k in codecs if k in COLORS]
-    col_w = 180
-    row_h = 20
+    row_h = 18
+    leg_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]  # (col, row)
+    leg_col_x = [mid_x - 200, mid_x + 10]
     for i, (key, label) in enumerate(legend_items):
-        col = i % 2
-        row = i // 2
-        lx = mid_x - col_w + col * col_w
+        if i >= len(leg_positions):
+            break
+        col, row = leg_positions[i]
+        lx = leg_col_x[col]
         ly = leg_y + row * row_h
         main_c, xfer_c = COLORS[key]
         L.append(
@@ -481,26 +482,23 @@ def summary_chart(results, out_dir):
         )
         L.append(
             f'  <text x="{lx + 18:.0f}" y="{ly + 5}" fill="#e6edf3"'
-            f' font-size="11" font-weight="500">{label}</text>'
+            f' font-size="10" font-weight="500">{label}</text>'
         )
 
-    # stack legend
-    stack_y = leg_y + row_h * 2 + 4
-    stack_items = [
-        ("compress + decompress", "#60a5fa"),
-        ("transfer @1 GB/s", "#4680c4"),
+    n_legend_rows = 2
+    # bar segment legend: bright = compress/decompress, dim = transfer
+    seg_y = leg_y + n_legend_rows * row_h + 8
+    seg_items = [
+        ("bright = compress + decompress", "#e6edf3"),
+        ("dim = transfer @1 GB/s", "#7d8590"),
     ]
-    stack_total = 320
-    stack_start = mid_x - stack_total / 2
-    for i, (label, swatch) in enumerate(stack_items):
-        sx = stack_start + i * 200
+    seg_total = 420
+    seg_start = mid_x - seg_total / 2
+    for i, (label, fill) in enumerate(seg_items):
+        sx = seg_start + i * 240
         L.append(
-            f'  <rect x="{sx:.0f}" y="{stack_y - 5}" width="12" height="12"'
-            f' fill="{swatch}" rx="2"/>'
-        )
-        L.append(
-            f'  <text x="{sx + 18:.0f}" y="{stack_y + 5}" fill="#7d8590"'
-            f' font-size="10">{label}</text>'
+            f'  <text x="{sx:.0f}" y="{seg_y + 4}" fill="{fill}"'
+            f' font-size="9">{label}</text>'
         )
 
     L.append("</svg>")
@@ -782,10 +780,370 @@ def generate_dict_charts(out_dir):
     print(f"  wrote {out_path}")
 
 
+import math
+
+SWEEP_CODEC_ORDER = ["lz4rip", "lz4rip (dict)", "C lz4", "C lz4 (dict)"]
+
+SWEEP_STYLES = {
+    "lz4rip":         {"color": "#f87171"},   # red
+    "lz4rip (dict)":  {"color": "#fb923c"},   # orange
+    "C lz4":          {"color": "#60a5fa"},   # blue
+    "C lz4 (dict)":   {"color": "#2dd4bf"},   # teal
+}
+
+SWEEP_LABELS = {
+    "lz4rip":         "lz4rip",
+    "lz4rip (dict)":  "lz4rip + dict",
+    "C lz4":          "lz4 (C)",
+    "C lz4 (dict)":   "lz4 (C) + dict",
+}
+
+
+def _fmt_size(n):
+    if n >= 1048576:
+        return f"{n // 1048576}M"
+    if n >= 1024:
+        return f"{n // 1024}K"
+    return str(n)
+
+
+def sweep_chart(results):
+    hw_label = detect_hardware()
+    codecs = [c for c in SWEEP_CODEC_ORDER if any(r["codec"] == c for r in results)]
+
+    # group by codec
+    by_codec = {}
+    for r in results:
+        by_codec.setdefault(r["codec"], []).append(r)
+    for v in by_codec.values():
+        v.sort(key=lambda r: r["input_size"])
+
+    sizes = sorted(set(r["input_size"] for r in results))
+    if len(sizes) < 2:
+        return None
+
+    svg_w, svg_h = 720, 760
+    margin_l, margin_r = 80, 60
+    margin_top = 50 if hw_label else 40
+    panel_gap = 80
+    panel_h = (svg_h - margin_top - panel_gap - 130) // 2
+    plot_w = svg_w - margin_l - margin_r
+
+    log_min = math.log10(sizes[0])
+    log_max = math.log10(sizes[-1])
+
+    def x_pos(sz):
+        return margin_l + (math.log10(sz) - log_min) / (log_max - log_min) * plot_w
+
+    def make_panel(panel_top, title, get_ns):
+        L = []
+        y_bot = panel_top + panel_h
+
+        # compute data: ops/sec and MB/s per codec per size
+        all_ops = []
+        all_mbs = []
+        for codec in codecs:
+            for r in by_codec.get(codec, []):
+                ns = get_ns(r)
+                ops = 1e9 / ns
+                mbs = r["input_size"] / ns * 1e3
+                all_ops.append(ops)
+                all_mbs.append(mbs)
+
+        if not all_ops:
+            return []
+
+        ops_max = max(all_ops) * 1.15
+        mbs_max = max(all_mbs) * 1.15
+
+        # title
+        L.append(
+            f'  <text x="{svg_w / 2}" y="{panel_top - 12}" text-anchor="middle"'
+            f' fill="#e6edf3" font-size="12" font-weight="600">{title}</text>'
+        )
+
+        # y-axis left: ops/sec
+        L.append(
+            f'  <text x="{margin_l - 55}" y="{panel_top + panel_h // 2}"'
+            f' text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600"'
+            f' transform="rotate(-90,{margin_l - 55},{panel_top + panel_h // 2})">'
+            f'ops/sec</text>'
+        )
+
+        # y-axis right: throughput
+        L.append(
+            f'  <text x="{svg_w - margin_r + 48}" y="{panel_top + panel_h // 2}"'
+            f' text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600"'
+            f' transform="rotate(90,{svg_w - margin_r + 48},{panel_top + panel_h // 2})">'
+            f'throughput</text>'
+        )
+
+        # axes
+        L.append(
+            f'  <line x1="{margin_l}" y1="{y_bot}" x2="{margin_l + plot_w}" y2="{y_bot}"'
+            f' stroke="#30363d" stroke-width="1.5"/>'
+        )
+        L.append(
+            f'  <line x1="{margin_l}" y1="{panel_top}" x2="{margin_l}" y2="{y_bot}"'
+            f' stroke="#30363d" stroke-width="1"/>'
+        )
+        L.append(
+            f'  <line x1="{margin_l + plot_w}" y1="{panel_top}" x2="{margin_l + plot_w}" y2="{y_bot}"'
+            f' stroke="#30363d" stroke-width="1"/>'
+        )
+
+        # x-axis tick labels
+        for sz in sizes:
+            xx = x_pos(sz)
+            L.append(
+                f'  <line x1="{xx:.1f}" y1="{y_bot}" x2="{xx:.1f}" y2="{y_bot + 4}"'
+                f' stroke="#484f58" stroke-width="1"/>'
+            )
+            L.append(
+                f'  <text x="{xx:.1f}" y="{y_bot + 16}" text-anchor="middle"'
+                f' fill="#7d8590" font-size="9">{_fmt_size(sz)}</text>'
+            )
+
+        # y gridlines + labels (left: ops/sec, log scale)
+        log_ops_min = math.floor(math.log10(min(all_ops)))
+        log_ops_max = math.ceil(math.log10(ops_max))
+        for exp in range(log_ops_min, log_ops_max + 1):
+            val = 10 ** exp
+            if val > ops_max:
+                break
+            yy = y_bot - (math.log10(val) - math.log10(min(all_ops) * 0.8)) / (math.log10(ops_max) - math.log10(min(all_ops) * 0.8)) * panel_h
+            if yy < panel_top or yy > y_bot:
+                continue
+            L.append(
+                f'  <line x1="{margin_l}" y1="{yy:.1f}" x2="{margin_l + plot_w}" y2="{yy:.1f}"'
+                f' stroke="#21262d" stroke-width="1"/>'
+            )
+            if val >= 1e6:
+                label = f"{val / 1e6:.0f}M"
+            elif val >= 1e3:
+                label = f"{val / 1e3:.0f}K"
+            else:
+                label = str(int(val))
+            L.append(
+                f'  <text x="{margin_l - 6}" y="{yy:.1f}" text-anchor="end"'
+                f' dominant-baseline="middle" fill="#7d8590" font-size="9">{label}</text>'
+            )
+
+        # helper: log y position for ops/sec
+        ops_log_min = math.log10(min(all_ops) * 0.8)
+        ops_log_range = math.log10(ops_max) - ops_log_min
+        mbs_log_min = math.log10(min(all_mbs) * 0.8)
+        mbs_log_range = math.log10(mbs_max) - mbs_log_min
+
+        def y_ops(val):
+            return y_bot - (math.log10(val) - ops_log_min) / ops_log_range * panel_h
+
+        def y_mbs(val):
+            return y_bot - (math.log10(val) - mbs_log_min) / mbs_log_range * panel_h
+
+        # right axis labels (throughput in MB/s or GB/s)
+        log_mbs_min = math.floor(math.log10(min(all_mbs)))
+        log_mbs_max = math.ceil(math.log10(mbs_max))
+        for exp in range(log_mbs_min, log_mbs_max + 1):
+            val = 10 ** exp
+            if val > mbs_max:
+                break
+            yy = y_mbs(val)
+            if yy < panel_top or yy > y_bot:
+                continue
+            if val >= 1e3:
+                label = f"{val / 1e3:.0f} GB/s"
+            elif val >= 100:
+                label = f"{val:.0f} MB/s"
+            elif val >= 10:
+                label = f"{val:.0f} MB/s"
+            else:
+                label = f"{val:.0f} MB/s"
+            L.append(
+                f'  <text x="{margin_l + plot_w + 6}" y="{yy:.1f}" text-anchor="start"'
+                f' dominant-baseline="middle" fill="#7d8590" font-size="9">{label}</text>'
+            )
+
+        # plot lines
+        for codec in codecs:
+            style = SWEEP_STYLES[codec]
+            color = style["color"]
+            rows = by_codec.get(codec, [])
+            if not rows:
+                continue
+
+            pts_ops = []
+            pts_mbs = []
+            for r in rows:
+                ns = get_ns(r)
+                ops = 1e9 / ns
+                mbs = r["input_size"] / ns * 1e3
+                xx = x_pos(r["input_size"])
+                pts_ops.append(f"{xx:.1f},{y_ops(ops):.1f}")
+                pts_mbs.append(f"{xx:.1f},{y_mbs(mbs):.1f}")
+
+            # ops/sec: dashed (thin)
+            L.append(
+                f'  <polyline points="{" ".join(pts_ops)}" fill="none"'
+                f' stroke="{color}" stroke-width="1.2" stroke-dasharray="4,3"'
+                f' stroke-opacity="0.55"/>'
+            )
+            # throughput: solid
+            L.append(
+                f'  <polyline points="{" ".join(pts_mbs)}" fill="none"'
+                f' stroke="{color}" stroke-width="2"/>'
+            )
+
+            # dots on MB/s line
+            for pt in pts_mbs:
+                cx, cy = pt.split(",")
+                L.append(
+                    f'  <circle cx="{cx}" cy="{cy}" r="2" fill="{color}"/>'
+                )
+
+        return L
+
+    L = []
+    L.append(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svg_w} {svg_h}"'
+        f' font-family="system-ui, -apple-system, sans-serif">'
+    )
+    L.append(f'  <rect width="{svg_w}" height="{svg_h}" fill="#0d1117"/>')
+
+    # main title
+    L.append(
+        f'  <text x="{svg_w / 2}" y="22" text-anchor="middle" fill="#e6edf3"'
+        f' font-size="14" font-weight="700">'
+        f'LZ4 Size Sweep: Synthetic JSON (log-log)</text>'
+    )
+    if hw_label:
+        L.append(
+            f'  <text x="{svg_w / 2}" y="38" text-anchor="middle" fill="#7d8590"'
+            f' font-size="10">{hw_label}</text>'
+        )
+
+    panel1_top = margin_top + 18
+    panel2_top = panel1_top + panel_h + panel_gap
+
+    p1 = make_panel(panel1_top, "Compress", lambda r: r["compress_ns"])
+    if p1:
+        L.extend(p1)
+    p2 = make_panel(panel2_top, "Roundtrip (compress + decompress)",
+                     lambda r: r["compress_ns"] + r["decompress_ns"])
+    if p2:
+        L.extend(p2)
+
+    # x-axis label
+    L.append(
+        f'  <text x="{svg_w / 2}" y="{panel2_top + panel_h + 30}"'
+        f' text-anchor="middle" fill="#e6edf3" font-size="11"'
+        f' font-weight="600">input size</text>'
+    )
+
+    # legend: codecs (2x2 grid)
+    leg_y = panel2_top + panel_h + 48
+    leg_x_start = margin_l
+    col_w = 160
+    for i, codec in enumerate(codecs):
+        style = SWEEP_STYLES[codec]
+        col = i % 4
+        row = i // 4
+        lx = leg_x_start + col * col_w
+        ly = leg_y + row * 20
+
+        L.append(
+            f'  <line x1="{lx}" y1="{ly}" x2="{lx + 20}" y2="{ly}"'
+            f' stroke="{style["color"]}" stroke-width="2"/>'
+        )
+        L.append(
+            f'  <text x="{lx + 26}" y="{ly + 4}" fill="#e6edf3"'
+            f' font-size="10" font-weight="500">{SWEEP_LABELS[codec]}</text>'
+        )
+
+    # line style legend
+    style_y = leg_y + 20
+    L.append(
+        f'  <line x1="{leg_x_start}" y1="{style_y}" x2="{leg_x_start + 20}" y2="{style_y}"'
+        f' stroke="#7d8590" stroke-width="2"/>'
+    )
+    L.append(
+        f'  <text x="{leg_x_start + 26}" y="{style_y + 4}" fill="#7d8590"'
+        f' font-size="9">solid = throughput (right axis)</text>'
+    )
+    L.append(
+        f'  <line x1="{leg_x_start + 220}" y1="{style_y}" x2="{leg_x_start + 240}" y2="{style_y}"'
+        f' stroke="#7d8590" stroke-width="1.5" stroke-dasharray="4,3" stroke-opacity="0.6"/>'
+    )
+    L.append(
+        f'  <text x="{leg_x_start + 246}" y="{style_y + 4}" fill="#7d8590"'
+        f' font-size="9">thin = ops/sec (left axis)</text>'
+    )
+
+    L.append("</svg>")
+    return "\n".join(L) + "\n"
+
+
+def generate_sweep_chart(out_dir):
+    """Train dict, run sweep bench, generate chart."""
+    with tempfile.TemporaryDirectory() as tmp:
+        sample_dir = Path(tmp) / "samples"
+        sample_dir.mkdir()
+        rng = random.Random(42)
+        for i in range(DICT_TRAIN_COUNT):
+            size = rng.randint(128, 2048)
+            data = json_payload(size, counter_start=i * 100)
+            (sample_dir / f"msg_{i:04d}.json").write_text(data)
+
+        dict_path = Path(tmp) / "json.dict"
+        if not train_dict(sample_dir, dict_path):
+            print("  skipping sweep chart: dict training failed", file=sys.stderr)
+            return
+
+        cmd = ["cargo", "run", "--release", "--example", "lz4rip_bench", "--",
+               "--sweep", str(dict_path)]
+        has_taskset = shutil.which("taskset") is not None
+        if has_taskset:
+            cmd = ["taskset", "-c", "0"] + cmd
+        print("  running sweep bench...", file=sys.stderr)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  sweep bench failed: {result.stderr}", file=sys.stderr)
+            return
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        results = json.loads(result.stdout)
+
+    if not results:
+        print("  skipping sweep chart: no results", file=sys.stderr)
+        return
+
+    svg = sweep_chart(results)
+    if svg:
+        out_path = out_dir / "sweep.svg"
+        out_path.write_text(svg)
+        print(f"  wrote {out_path}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <results.json|results.jsonl> [output_dir]", file=sys.stderr)
         sys.exit(1)
+
+    # standalone sweep mode: plot_bench.py --sweep <sweep_results.json> [output_dir]
+    if sys.argv[1] == "--sweep":
+        if len(sys.argv) < 3:
+            print(f"Usage: {sys.argv[0]} --sweep <sweep_results.json> [output_dir]",
+                  file=sys.stderr)
+            sys.exit(1)
+        results = load_results(sys.argv[2])
+        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
+        out_dir.mkdir(exist_ok=True)
+        svg = sweep_chart(results)
+        if svg:
+            out_path = out_dir / "sweep.svg"
+            out_path.write_text(svg)
+            print(f"  wrote {out_path}")
+        return
 
     results = load_results(sys.argv[1])
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("doc/charts")

@@ -127,53 +127,6 @@ pub(crate) fn wild_copy_16(
     *dst_pos += advance;
 }
 
-/// Copy up to 14 literal bytes from `src` to `dst` using a 32-byte wide copy.
-/// aarch64 variant: wider copies exploit NEON registers.
-#[cfg(target_arch = "aarch64")]
-#[inline]
-pub(crate) fn wild_copy_32(
-    src: &[u8],
-    src_pos: usize,
-    dst: &mut [u8],
-    dst_pos: &mut usize,
-    advance: usize,
-) {
-    debug_assert!(src_pos + 32 <= src.len());
-    debug_assert!(*dst_pos + 32 <= dst.len());
-    debug_assert!(advance <= 16);
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            src.as_ptr().add(src_pos),
-            dst.as_mut_ptr().add(*dst_pos),
-            32,
-        );
-    }
-    *dst_pos += advance;
-}
-
-/// Copy match within `buf`: four sequential 8-byte copies (32 bytes).
-/// aarch64 variant: wider copies for matches with offset >= 8.
-#[cfg(target_arch = "aarch64")]
-#[inline]
-pub(crate) fn wild_match_copy_32(
-    buf: &mut [u8],
-    src_pos: usize,
-    dst_pos: &mut usize,
-    advance: usize,
-) {
-    debug_assert!(*dst_pos + 32 <= buf.len());
-    debug_assert!(*dst_pos - src_pos >= 8);
-    debug_assert!(advance <= 18);
-    unsafe {
-        let ptr = buf.as_mut_ptr();
-        core::ptr::copy_nonoverlapping(ptr.add(src_pos), ptr.add(*dst_pos), 8);
-        core::ptr::copy_nonoverlapping(ptr.add(src_pos + 8), ptr.add(*dst_pos + 8), 8);
-        core::ptr::copy_nonoverlapping(ptr.add(src_pos + 16), ptr.add(*dst_pos + 16), 8);
-        core::ptr::copy_nonoverlapping(ptr.add(src_pos + 24), ptr.add(*dst_pos + 24), 8);
-    }
-    *dst_pos += advance;
-}
-
 /// Copy match within `buf`: three sequential 8-byte copies from `src_pos` to `*dst_pos`.
 /// Handles offsets >= 8 correctly (sequential copies read freshly written data,
 /// reproducing LZ4's overlapping-match semantics).
@@ -275,6 +228,135 @@ pub(crate) fn copy_within_overlapping(
     }
 
     *dst_pos += match_len;
+}
+
+/// Inline literal wildcopy: copy `len` bytes from `src[src_pos..]` to
+/// `dst[*dst_pos..]` in 16-byte chunks, overcopying up to 15 bytes past the end.
+/// Avoids the `memmove` call that `copy_from_src` (a sized `copy_nonoverlapping`)
+/// lowers to — a large win for slow-path sequences whose literals are short or
+/// medium-length, where the call overhead dominates.
+///
+/// Explicit u128 load/store (rather than `copy_nonoverlapping(.., 16)`) keeps the
+/// loop body as vector ld/st and prevents LLVM from re-rolling it into a memcpy.
+///
+/// Caller must ensure `src_pos + len + 16 <= src.len()` and
+/// `*dst_pos + len + 16 <= dst.len()` (room for the trailing overcopy). Regions
+/// do not alias (src is input, dst is output).
+#[inline]
+pub(crate) fn wild_copy_literals(
+    src: &[u8],
+    src_pos: usize,
+    dst: &mut [u8],
+    dst_pos: &mut usize,
+    len: usize,
+) {
+    debug_assert!(src_pos + len + 32 <= src.len());
+    debug_assert!(*dst_pos + len + 32 <= dst.len());
+    let d = *dst_pos;
+    // SAFETY: caller guarantees `len + 32` bytes of headroom in both slices.
+    unsafe {
+        let sp = src.as_ptr();
+        let dp = dst.as_mut_ptr();
+        let mut done = 0;
+        loop {
+            let v0 = (sp.add(src_pos + done) as *const u128).read_unaligned();
+            let v1 = (sp.add(src_pos + done + 16) as *const u128).read_unaligned();
+            (dp.add(d + done) as *mut u128).write_unaligned(v0);
+            (dp.add(d + done + 16) as *mut u128).write_unaligned(v1);
+            done += 32;
+            if done >= len {
+                break;
+            }
+        }
+    }
+    *dst_pos += len;
+}
+
+/// Inline match wildcopy for `offset >= 8`: copy `len` bytes from `buf[src..]` to
+/// `buf[*dst_pos..]` in 8-byte chunks, overcopying up to 7 bytes. Correct for any
+/// `offset >= 8` (each 8-byte read lies wholly within already-written data, so the
+/// overlapping-match pattern is reproduced). Replaces the `memmove` call that the
+/// exact slow-path copy lowers to.
+///
+/// Caller must ensure `*dst_pos - src >= 8` and `*dst_pos + len + 8 <= buf.len()`.
+#[inline]
+pub(crate) fn wild_copy_match_8(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+    debug_assert!(*dst_pos >= src + 8);
+    debug_assert!(*dst_pos + len + 8 <= buf.len());
+    let dst = *dst_pos;
+    // SAFETY: `offset = dst - src >= 8`, so each 8-byte read at `src + done` ends at
+    // or before `dst + done` (already-written bytes). `len + 8` bytes of write
+    // headroom are guaranteed by the caller.
+    unsafe {
+        let ptr = buf.as_mut_ptr();
+        let mut done = 0;
+        loop {
+            let v = (ptr.add(src + done) as *const u64).read_unaligned();
+            (ptr.add(dst + done) as *mut u64).write_unaligned(v);
+            done += 8;
+            if done >= len {
+                break;
+            }
+        }
+    }
+    *dst_pos += len;
+}
+
+/// Inline match wildcopy for `offset >= 16`: like [`wild_copy_match_8`] but with
+/// 16-byte chunks, overcopying up to 15 bytes. Faster for long matches (e.g.
+/// hdfs, where matches average ~47 bytes and offsets are almost always >= 16).
+///
+/// Caller must ensure `*dst_pos - src >= 16` and `*dst_pos + len + 16 <= buf.len()`.
+#[inline]
+pub(crate) fn wild_copy_match_16(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+    debug_assert!(*dst_pos >= src + 16);
+    debug_assert!(*dst_pos + len + 16 <= buf.len());
+    let dst = *dst_pos;
+    // SAFETY: `offset = dst - src >= 16`, so each 16-byte read at `src + done`
+    // ends at or before `dst + done` (already-written bytes). `len + 16` bytes of
+    // write headroom are guaranteed by the caller.
+    unsafe {
+        let ptr = buf.as_mut_ptr();
+        let mut done = 0;
+        loop {
+            let v = (ptr.add(src + done) as *const u128).read_unaligned();
+            (ptr.add(dst + done) as *mut u128).write_unaligned(v);
+            done += 16;
+            if done >= len {
+                break;
+            }
+        }
+    }
+    *dst_pos += len;
+}
+
+/// Inline match wildcopy for `offset >= 32`: 32-byte chunks (two u128 ld/st),
+/// overcopying up to 31 bytes. For long matches with far offsets (e.g. hdfs).
+///
+/// Caller must ensure `*dst_pos - src >= 32` and `*dst_pos + len + 32 <= buf.len()`.
+#[inline]
+pub(crate) fn wild_copy_match_32(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+    debug_assert!(*dst_pos >= src + 32);
+    debug_assert!(*dst_pos + len + 32 <= buf.len());
+    let dst = *dst_pos;
+    // SAFETY: `offset = dst - src >= 32`, so each 32-byte read at `src + done`
+    // ends at or before `dst + done` (already-written bytes). `len + 32` bytes of
+    // write headroom are guaranteed by the caller.
+    unsafe {
+        let ptr = buf.as_mut_ptr();
+        let mut done = 0;
+        loop {
+            let v0 = (ptr.add(src + done) as *const u128).read_unaligned();
+            let v1 = (ptr.add(src + done + 16) as *const u128).read_unaligned();
+            (ptr.add(dst + done) as *mut u128).write_unaligned(v0);
+            (ptr.add(dst + done + 16) as *mut u128).write_unaligned(v1);
+            done += 32;
+            if done >= len {
+                break;
+            }
+        }
+    }
+    *dst_pos += len;
 }
 
 /// Unchecked non-overlapping copy within `buf`. Caller must ensure

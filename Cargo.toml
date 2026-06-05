@@ -36,6 +36,12 @@ libc = "0.2"
 git = "https://github.com/PSeitz/lz4_flex"
 package = "lz4_flex"
 
+[dev-dependencies.lz4_flex_unsafe]
+version = "0.11.5"
+package = "lz4_flex"
+default-features = false
+features = ["std"]
+
 
 [profile.bench]
 codegen-units = 1

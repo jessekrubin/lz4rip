@@ -41,19 +41,19 @@ Two hash table implementations selected by input size:
 
 The 16-bit table fits in L1 cache and avoids 32-bit position tracking overhead for short messages. C lz4 uses a single 16 KB table (`LZ4_hash4`) for all input sizes.
 
-Selection happens at the call site in `compress_into_with_dict` (`compress.rs:355-386`). Both types implement the `HashTable` trait so the core loop is generic.
+Selection happens at the call site in `compress_into_with_dict` in `compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
 
 ## 5-byte hash
 
 C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative constant. lz4rip reads 5 bytes (via an 8-byte native-endian load, shifted) and hashes with a 64-bit PRIME5 constant. The extra byte reduces collisions across 4K-8K entry tables.
 
-The PRIME5 constant is endianness-aware (`hashtable.rs:156-169`): different values for little-endian and big-endian targets, since the hash input comes from native-endian reads.
+The PRIME5 constant is endianness-aware: different values for little-endian and big-endian targets in `hashtable.rs`, since the hash input comes from native-endian reads.
 
 The `HashTable4KU16` type uses PRIME5 >> 51 to index 8K entries. `HashTable4K` uses PRIME5 >> 52 for 4K entries.
 
 ## Compile-time specialization
 
-`compress_internal` (`compress.rs:149`) is generic over four axes:
+`compress_internal` in `compress.rs` is generic over four axes:
 
 | Parameter | Variants | Effect |
 |---|---|---|
@@ -64,11 +64,11 @@ The `HashTable4KU16` type uses PRIME5 >> 51 to index 8K entries. `HashTable4K` u
 
 When `USE_DICT=false`, all dictionary code is dead and eliminated by LLVM. When `HAS_OFFSET=false`, offset is a compile-time zero. The function is `#[inline(never)]` so LLVM specializes each call site independently without excessive code duplication.
 
-`decompress_internal` (`decompress.rs:78`) is similarly generic over `USE_DICT` and sink type, with a fast path (unchecked reads in safe region) and slow path (bounds-checked near buffer end).
+`decompress_internal` in `decompress.rs` is similarly generic over `USE_DICT` and sink type, with a fast path (unchecked reads in safe region) and slow path (bounds-checked near buffer end).
 
 ## Forward hashing
 
-The match-search loop computes the hash of the next candidate position while checking the current one (`compress.rs:200-202`). This hides hash computation latency behind the branch misprediction penalty of the match check. The pattern is:
+The match-search loop in `compress_internal` computes the hash of the next candidate position while checking the current one. This hides hash computation latency behind the branch misprediction penalty of the match check. The pattern is:
 
 ```
 hash(pos+1) → check match at pos → if miss, use pre-computed hash
@@ -80,16 +80,16 @@ C lz4 uses the same technique. lz4_flex does not.
 
 All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in two internal modules:
 
-- `hashtable.rs`: unchecked memory reads (`read_u16_unchecked`, `read_u32_unchecked`, `read_byte_unchecked`), wild copies (`wild_copy_16`, `wild_match_copy_18`), `copy_within_nonoverlap`, `count_same_bytes`. Each has `debug_assert` guards on bounds.
+- `hashtable.rs`: unchecked memory reads (`read_u16_unchecked`, `read_u32_unchecked`, `read_byte_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `count_same_bytes`. Each has `debug_assert` guards on bounds.
 - `verified_sink.rs`: `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
 
-The safe-region margin computation in the decompression loop (`decompress.rs:89-101`) determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
+The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
 
 ## Dictionary compression
 
-Dictionary initialization hashes every 3rd byte of the dictionary (`compress.rs:389-399`), not every byte. This reduces setup cost while maintaining reasonable match coverage.
+Dictionary initialization in `compress_into_with_dict` hashes every 3rd byte of the dictionary, not every byte. This reduces setup cost while maintaining reasonable match coverage.
 
-The `Compressor` struct caches the pre-hashed dictionary table and restores it via memcpy before each compression call (`compress.rs:512-516`). 16 KB memcpy per call, but avoids re-hashing.
+`Compressor` caches the pre-hashed dictionary table and restores it via memcpy before each `compress_into` call. 16 KB memcpy per call, but avoids re-hashing.
 
 Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB.
 

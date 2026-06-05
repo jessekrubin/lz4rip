@@ -31,8 +31,12 @@ pub(super) fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize,
     Ok(n)
 }
 
-const FIT_TOKEN_MASK_LITERAL: u8 = 0b00001111;
+// High nibble of the token holds the literal length; `== 0xF0` means the literal
+// length is extended (>= 15) and must be read as a variable-length integer.
 const FIT_TOKEN_MASK_MATCH: u8 = 0b11110000;
+
+#[cfg(test)]
+const FIT_TOKEN_MASK_LITERAL: u8 = 0b00001111;
 
 #[test]
 fn check_token() {
@@ -44,6 +48,7 @@ fn check_token() {
 }
 
 /// Returns true if both nibbles of the token are below 15 (no extended lengths needed).
+#[cfg(test)]
 #[inline]
 fn does_token_fit(token: u8) -> bool {
     !((token & FIT_TOKEN_MASK_LITERAL) == FIT_TOKEN_MASK_LITERAL
@@ -62,14 +67,11 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     let mut input_pos = 0;
     let initial_output_pos = output.pos();
 
-    // Margins for unchecked reads in the fast path. Inside these bounds,
-    // wild copies are guaranteed not to read/write past the buffer.
-    // aarch64 uses 32-byte copies; x86_64 uses 16-byte.
-    let (lit_margin, match_margin) = if cfg!(target_arch = "aarch64") {
-        (32, 32)
-    } else {
-        (16, 18)
-    };
+    // Margins for unchecked reads in the fast path. Inside these bounds, the
+    // fixed-width fast-path copies (16-byte literal, 18-byte match) are
+    // guaranteed not to read/write past the buffer. The slow path's wildcopy
+    // does its own per-operation headroom checks, so it is unaffected.
+    let (lit_margin, match_margin) = (16, 18);
     let safe_input_pos = input
         .len()
         .saturating_sub(lit_margin + 2 /* u16 match offset */);
@@ -90,15 +92,22 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
         };
         input_pos += 1;
 
-        // Fast path: both lengths fit in token, safe distance from end.
-        // aarch64: register comparisons first while token load is in flight.
+        // Fast region: the *literal* fits in the token (length < 15) and we are a
+        // safe distance from both buffer ends. The match length may still be
+        // extended (nibble == 15) -- it is read inline below with an explicit
+        // output-room check. Only long *literals* (which need careful, fully
+        // bounds-checked copying) fall through to the slow path. This keeps the
+        // common short-literal/long-match sequence (e.g. hdfs 52%, nci 28%) out
+        // of the slow path.
+        // aarch64: register comparisons first while the token load is in flight.
+        let literal_fits = (token & FIT_TOKEN_MASK_MATCH) != FIT_TOKEN_MASK_MATCH;
         #[cfg(target_arch = "aarch64")]
-        let enter_fast = in_safe_region && output.pos() < safe_output_pos && does_token_fit(token);
+        let enter_fast = in_safe_region && output.pos() < safe_output_pos && literal_fits;
         #[cfg(not(target_arch = "aarch64"))]
-        let enter_fast = does_token_fit(token) && in_safe_region && output.pos() < safe_output_pos;
+        let enter_fast = literal_fits && in_safe_region && output.pos() < safe_output_pos;
         if enter_fast {
             let literal_length = (token >> 4) as usize;
-            let match_length = MINMATCH + (token & 0xF) as usize;
+            let match_nib = (token & 0xF) as usize;
 
             let offset =
                 super::hashtable::read_u16_unchecked(input, input_pos + literal_length) as usize;
@@ -107,12 +116,63 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             }
 
             let (out, pos) = output.output_mut_with_pos();
-            #[cfg(target_arch = "aarch64")]
-            super::hashtable::wild_copy_32(input, input_pos, out, pos, literal_length);
-            #[cfg(not(target_arch = "aarch64"))]
             super::hashtable::wild_copy_16(input, input_pos, out, pos, literal_length);
             input_pos += literal_length + 2;
 
+            // Hot path: short match (length <= 18). The output margin guarantees
+            // room for the fixed 18-byte match copy, so no per-op check is needed.
+            if match_nib != 15 {
+                let match_length = MINMATCH + match_nib;
+                if USE_DICT && offset > *pos {
+                    let _ = (out, pos);
+                    let copied = copy_from_dict(output, ext_dict, offset, match_length)?;
+                    if copied == match_length {
+                        continue;
+                    }
+                    let match_length = match_length - copied;
+                    let (start, did_overflow) = output.pos().overflowing_sub(offset);
+                    if did_overflow {
+                        return Err(DecompressError::OffsetOutOfBounds);
+                    }
+                    output.extend_from_within_overlapping(start, match_length);
+                    continue;
+                }
+
+                let (start, did_overflow) = pos.overflowing_sub(offset);
+                if did_overflow {
+                    return Err(DecompressError::OffsetOutOfBounds);
+                }
+                if offset >= 8 {
+                    super::hashtable::wild_match_copy_18(out, start, pos, match_length);
+                } else if offset == 1 {
+                    let val = out[start];
+                    out[*pos..*pos + match_length].fill(val);
+                    *pos += match_length;
+                } else if match_length <= offset {
+                    super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
+                } else {
+                    super::hashtable::copy_within_overlapping(
+                        out,
+                        start,
+                        pos,
+                        match_length,
+                        offset,
+                    );
+                }
+                continue;
+            }
+
+            // Extended match (nibble == 15): read the variable-length tail, then
+            // bounds-check the (now untrusted) match length against the output.
+            let match_length = (MINMATCH + 15)
+                .checked_add(read_integer(input, &mut input_pos)?)
+                .ok_or(DecompressError::LiteralOutOfBounds)?;
+            if *pos + match_length > out.len() {
+                return Err(DecompressError::OutputTooSmall {
+                    expected: *pos + match_length,
+                    actual: out.len(),
+                });
+            }
             if USE_DICT && offset > *pos {
                 let _ = (out, pos);
                 let copied = copy_from_dict(output, ext_dict, offset, match_length)?;
@@ -127,24 +187,33 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                 output.extend_from_within_overlapping(start, match_length);
                 continue;
             }
-
             let (start, did_overflow) = pos.overflowing_sub(offset);
             if did_overflow {
                 return Err(DecompressError::OffsetOutOfBounds);
             }
-            if offset >= 8 {
-                #[cfg(target_arch = "aarch64")]
-                super::hashtable::wild_match_copy_32(out, start, pos, match_length);
-                #[cfg(not(target_arch = "aarch64"))]
-                super::hashtable::wild_match_copy_18(out, start, pos, match_length);
-            } else if offset == 1 {
-                let val = out[start];
-                out[*pos..*pos + match_length].fill(val);
-                *pos += match_length;
-            } else if match_length <= offset {
-                super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
+            // Same tiered wildcopy as the slow path; offset is almost always >= 16.
+            if offset >= 32 && *pos + match_length + 32 <= out.len() {
+                super::hashtable::wild_copy_match_32(out, start, pos, match_length);
+            } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
+                super::hashtable::wild_copy_match_16(out, start, pos, match_length);
+            } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
+                super::hashtable::wild_copy_match_8(out, start, pos, match_length);
+            } else if match_length > offset {
+                if offset == 1 {
+                    let val = out[start];
+                    out[*pos..*pos + match_length].fill(val);
+                    *pos += match_length;
+                } else {
+                    super::hashtable::copy_within_overlapping(
+                        out,
+                        start,
+                        pos,
+                        match_length,
+                        offset,
+                    );
+                }
             } else {
-                super::hashtable::copy_within_overlapping(out, start, pos, match_length, offset);
+                super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
             }
             continue;
         }
@@ -167,7 +236,17 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                 });
             }
             let (out, pos) = output.output_mut_with_pos();
-            super::hashtable::copy_from_src(input, input_pos, out, pos, literal_length);
+            // Inline wildcopy when there's overcopy headroom in both buffers;
+            // this avoids the memmove call that dominates slow-path cost (e.g.
+            // sao, ~69% of decompress time). The exact path runs only for the
+            // final sequences near the buffer end.
+            if input_pos + literal_length + 32 <= input.len()
+                && *pos + literal_length + 32 <= out.len()
+            {
+                super::hashtable::wild_copy_literals(input, input_pos, out, pos, literal_length);
+            } else {
+                super::hashtable::copy_from_src(input, input_pos, out, pos, literal_length);
+            }
             input_pos += literal_length;
         }
 
@@ -212,7 +291,18 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
         if did_overflow {
             return Err(DecompressError::OffsetOutOfBounds);
         }
-        if match_length > offset {
+        // Inline 8-byte wildcopy for offset >= 8 when there's overcopy headroom.
+        // Handles both overlapping (offset < match_length) and non-overlapping
+        // cases and avoids the memmove call (~25% of sao decompress time was a
+        // ~6-byte memmove call). The specialized branches below run only for
+        // small offsets or near the buffer end.
+        if offset >= 32 && *pos + match_length + 32 <= out.len() {
+            super::hashtable::wild_copy_match_32(out, start, pos, match_length);
+        } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
+            super::hashtable::wild_copy_match_16(out, start, pos, match_length);
+        } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
+            super::hashtable::wild_copy_match_8(out, start, pos, match_length);
+        } else if match_length > offset {
             if offset == 1 {
                 let val = out[start];
                 out[*pos..*pos + match_length].fill(val);
@@ -423,6 +513,29 @@ mod test {
             decompress(&[0x0E, 0, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256),
             Err(DecompressError::OffsetZero)
         ));
+    }
+
+    // Small randomized roundtrip to exercise the slow-path wildcopy paths
+    // (overcopy literals/matches at varying offsets) under Miri.
+    #[test]
+    fn miri_wildcopy_roundtrip() {
+        let mut state: u64 = 0x1234_5678_9abc_def1;
+        let mut rng = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..40 {
+            let len = (rng() % 600) as usize + 64;
+            let alpha = 1 + (rng() % 40);
+            let data: Vec<u8> = (0..len).map(|_| (rng() % alpha) as u8).collect();
+            let max = crate::block::get_maximum_output_size(data.len());
+            let mut comp = vec![0u8; max];
+            let n = crate::block::compress_into(&data, &mut comp).unwrap();
+            let out = decompress(&comp[..n], data.len()).unwrap();
+            assert_eq!(out, data);
+        }
     }
 
     #[test]

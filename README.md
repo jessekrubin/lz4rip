@@ -14,16 +14,77 @@ lz4rip = "0.1"
 ## Block format
 
 ```rust
-use lz4rip::block::{compress_prepend_size, decompress_size_prepended};
+use lz4rip::block::{compress, decompress_into, get_maximum_output_size};
 
-let input: &[u8] = b"Hello people, what's up?";
-let compressed = compress_prepend_size(input);
-let uncompressed = decompress_size_prepended(&compressed).unwrap();
-assert_eq!(input, uncompressed);
+let input = b"Hello people, what's up?";
+let compressed = compress(input);
+
+let mut output = vec![0u8; input.len()];
+let n = decompress_into(&compressed, &mut output).unwrap();
+assert_eq!(&output[..n], input);
 ```
 
-See [`examples/quickstart.rs`](examples/quickstart.rs) for dictionary compression and
-frame format (streaming) examples.
+The `_into` variants write into a caller-provided buffer. The plain variants
+allocate. `compress_prepend_size` / `decompress_size_prepended` frame the
+compressed payload with a little-endian u32 length prefix for self-describing
+messages.
+
+```rust
+// One-shot (allocating)
+fn compress(input: &[u8]) -> Vec<u8>;
+fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>>;
+
+// One-shot (into caller buffer)
+fn compress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
+fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
+
+// Size-prepended convenience
+fn compress_prepend_size(input: &[u8]) -> Vec<u8>;
+fn decompress_size_prepended(input: &[u8]) -> Result<Vec<u8>>;
+```
+
+### Dictionary compression
+
+Pre-seed the compressor and decompressor with shared context for better ratios
+on small messages (e.g. JSON records, log lines).
+
+```rust
+use lz4rip::block::{Compressor, Decompressor, get_maximum_output_size};
+
+let dict = b"shared context bytes...";
+let mut comp = Compressor::with_dict(dict);
+let decomp = Decompressor::with_dict(dict);
+
+let input = b"context bytes appear in messages";
+let mut buf = vec![0u8; get_maximum_output_size(input.len())];
+let n = comp.compress_into(input, &mut buf).unwrap();
+
+let output = decomp.decompress(&buf[..n], input.len()).unwrap();
+assert_eq!(&output[..], input);
+```
+
+## Frame format
+
+The frame format (feature `frame`, on by default) wraps block compression in the
+standard LZ4 frame container with checksums, content size, and streaming support.
+`FrameEncoder` and `FrameDecoder` implement `Write` and `Read`.
+
+```rust
+use lz4rip::frame::{FrameEncoder, FrameDecoder};
+use std::io::{Write, Read};
+
+// Compress
+// FrameEncoder::with_dictionary(wtr, dict, dict_id) for dictionary support
+let mut encoder = FrameEncoder::new(Vec::new());
+encoder.write_all(b"Hello frame format!").unwrap();
+let compressed = encoder.finish().unwrap();
+
+// Decompress
+let mut decoder = FrameDecoder::new(&compressed[..]);
+let mut output = String::new();
+decoder.read_to_string(&mut output).unwrap();
+assert_eq!(output, "Hello frame format!");
+```
 
 ## Performance
 
