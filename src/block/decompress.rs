@@ -433,7 +433,7 @@ mod test {
         let mut input = vec![0xF0u8]; // token: 15 literals
                                       // 256 continuation bytes: value = 15 + 256*255 = 65295 on 64-bit (no overflow),
                                       // but literal_length > input.len() - input_pos catches it as LiteralOutOfBounds.
-        input.extend(core::iter::repeat(0xFF).take(256));
+        input.extend(core::iter::repeat_n(0xFF, 256));
         input.push(0); // terminator for read_integer
         let result = decompress(&input, 1024);
         assert!(result.is_err(), "must reject absurd literal length");

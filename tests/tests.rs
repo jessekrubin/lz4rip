@@ -508,7 +508,7 @@ fn bug_fuzz_8() {
 
 #[test]
 fn test_so_many_zeros() {
-    let data: Vec<u8> = iter::repeat(0).take(30_000).collect();
+    let data: Vec<u8> = iter::repeat_n(0, 30_000).collect();
     test_roundtrip(data);
 }
 
