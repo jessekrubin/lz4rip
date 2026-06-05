@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-05
+
+- README: moved performance charts to top, added sweep chart, moved CVE table to SAFETY.md
+- Bench: pipeline_chart filters inputs to displayed codecs (fixes stray json_1k.json on aarch64)
+- Charts: unified widths (summary/pipeline/sweep 850px, dict2k 400px)
+
 ## [0.2.0] - 2026-06-05
 
 - Decompress: inline wildcopy for literals (32B chunks) and matches (tiered 8/16/32B), replacing memmove calls

@@ -1,14 +1,14 @@
 [package]
 name = "lz4rip"
 description = "Rust LZ4 compression. Fast, with encapsulated unsafe."
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/paddor/lz4rip"
 readme = "README.md"
 keywords = ["compression", "lz4", "compress", "decompression", "decompress"]
-include = ["src/**/*", "README.md", "LICENSE", "CHANGELOG.md", "DESIGN.md", "doc/charts/**/*.svg"]
+include = ["src/**/*", "README.md", "LICENSE", "CHANGELOG.md", "DESIGN.md", "SAFETY.md", "doc/charts/**/*.svg"]
 
 [package.metadata.docs.rs]
 all-features = true
