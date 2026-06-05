@@ -122,8 +122,10 @@ def detect_hardware():
 
 
 def pipeline_chart(results, out_dir):
-    inputs = get_inputs(results)
     codecs = [c for c in CODEC_ORDER if any(r["codec"] == c for r in results)]
+    codec_set = set(codecs)
+    inputs = [i for i in get_inputs(results)
+              if any(r["input"] == i and r["codec"] in codec_set for r in results)]
     n_codecs = len(codecs)
 
     # split inputs into two panels
@@ -712,23 +714,20 @@ def dict_chart(results, out_dir):
         )
 
 
-    # legend
+    # bar segment legend: bright = compress/decompress, dim = transfer
+    # (matches pipeline/summary charts; each codec's main_c is brighter than its xfer_c)
     leg_y = y_bot + 52
-    stack_items = [
-        ("compress + decompress", "#60a5fa"),
-        ("transfer @1 GB/s", "#4680c4"),
+    seg_items = [
+        ("bright = compress + decompress", "#e6edf3"),
+        ("dim = transfer @1 GB/s", "#7d8590"),
     ]
-    stack_total = 300
-    stack_start = mid_x - stack_total / 2
-    for i, (label, swatch) in enumerate(stack_items):
-        sx = stack_start + i * 180
+    seg_total = 300
+    seg_start = mid_x - seg_total / 2
+    for i, (label, fill) in enumerate(seg_items):
+        sx = seg_start + i * 170
         L.append(
-            f'  <rect x="{sx:.0f}" y="{leg_y - 5}" width="12" height="12"'
-            f' fill="{swatch}" rx="2"/>'
-        )
-        L.append(
-            f'  <text x="{sx + 18:.0f}" y="{leg_y + 5}" fill="#7d8590"'
-            f' font-size="10">{label}</text>'
+            f'  <text x="{sx:.0f}" y="{leg_y + 5}" fill="{fill}"'
+            f' font-size="9">{label}</text>'
         )
 
     # subtitle with training info
