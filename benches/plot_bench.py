@@ -358,9 +358,9 @@ def summary_chart(results, out_dir):
                 group_data[(group_name, codec)] = (comp, transfer, decomp)
 
     n_groups = len(groups)
-    svg_w = 600
+    svg_w = 850
     svg_h = 460
-    x_left, x_right = 70, 570
+    x_left, x_right = 70, 830
     plot_w = x_right - x_left
     y_top = 55 if hw_label else 45
     y_bot = 310
@@ -604,9 +604,9 @@ def dict_chart(results, out_dir):
         decomp = r["decompress_ns"] / 1e9 * per_gb
         bar_data[codec] = (comp, transfer, decomp, r)
 
-    svg_w = 400
+    svg_w = 850
     svg_h = 340
-    x_left, x_right = 70, 370
+    x_left, x_right = 70, 830
     plot_w = x_right - x_left
     y_top = 55 if hw_label else 45
     y_bot = 230
@@ -821,7 +821,7 @@ def sweep_chart(results):
     if len(sizes) < 2:
         return None
 
-    svg_w, svg_h = 720, 760
+    svg_w, svg_h = 850, 760
     margin_l, margin_r = 80, 60
     margin_top = 50 if hw_label else 40
     panel_gap = 80

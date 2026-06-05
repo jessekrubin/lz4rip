@@ -1,51 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 460" font-family="system-ui, -apple-system, sans-serif">
-  <rect width="600" height="460" fill="#0d1117"/>
-  <text x="320.0" y="22" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">LZ4 Pipeline @1 GB/s: Aggregate across corpus (lower is better)</text>
-  <text x="320.0" y="38" text-anchor="middle" fill="#7d8590" font-size="10">Intel Core i7-8700B @ 3.20GHz, performance governor, turbo off</text>
-  <line x1="70" y1="249.6" x2="570" y2="249.6" stroke="#21262d" stroke-width="1"/>
-  <text x="62" y="249.6" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">1</text>
-  <line x1="70" y1="189.2" x2="570" y2="189.2" stroke="#21262d" stroke-width="1"/>
-  <text x="62" y="189.2" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">2</text>
-  <line x1="70" y1="128.9" x2="570" y2="128.9" stroke="#21262d" stroke-width="1"/>
-  <text x="62" y="128.9" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">3</text>
-  <line x1="70" y1="68.5" x2="570" y2="68.5" stroke="#21262d" stroke-width="1"/>
-  <text x="62" y="68.5" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">4</text>
-  <line x1="70" y1="310" x2="570" y2="310" stroke="#30363d" stroke-width="1.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 460" font-family="system-ui, -apple-system, sans-serif">
+  <rect width="850" height="460" fill="#0d1117"/>
+  <text x="450.0" y="22" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">LZ4 Pipeline @1 GB/s: Aggregate across corpus (lower is better)</text>
+  <text x="450.0" y="38" text-anchor="middle" fill="#7d8590" font-size="10">Intel Core i7-8700B @ 3.20GHz, performance governor, turbo off</text>
+  <line x1="70" y1="250.2" x2="830" y2="250.2" stroke="#21262d" stroke-width="1"/>
+  <text x="62" y="250.2" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">1</text>
+  <line x1="70" y1="190.4" x2="830" y2="190.4" stroke="#21262d" stroke-width="1"/>
+  <text x="62" y="190.4" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">2</text>
+  <line x1="70" y1="130.5" x2="830" y2="130.5" stroke="#21262d" stroke-width="1"/>
+  <text x="62" y="130.5" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">3</text>
+  <line x1="70" y1="70.7" x2="830" y2="70.7" stroke="#21262d" stroke-width="1"/>
+  <text x="62" y="70.7" text-anchor="end" dominant-baseline="middle" fill="#7d8590" font-size="10">4</text>
+  <line x1="70" y1="310" x2="830" y2="310" stroke="#30363d" stroke-width="1.5"/>
   <text x="22" y="182.5" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600" transform="rotate(-90,22,182.5)">seconds / GB</text>
-  <rect x="95.0" y="184.6" width="43.8" height="125.4" fill="#60a5fa" rx="1"/>
-  <rect x="95.0" y="159.9" width="43.8" height="24.8" fill="#4680c4" rx="1"/>
-  <rect x="95.0" y="136.5" width="43.8" height="23.4" fill="#60a5fa" rx="1"/>
-  <rect x="145.0" y="182.3" width="43.8" height="127.7" fill="#f87171" rx="1"/>
-  <rect x="145.0" y="157.1" width="43.8" height="25.2" fill="#c45050" rx="1"/>
-  <rect x="145.0" y="130.0" width="43.8" height="27.1" fill="#f87171" rx="1"/>
-  <rect x="195.0" y="171.6" width="43.8" height="138.4" fill="#f59e0b" rx="1"/>
-  <rect x="195.0" y="146.8" width="43.8" height="24.8" fill="#c47d08" rx="1"/>
-  <rect x="195.0" y="120.2" width="43.8" height="26.6" fill="#f59e0b" rx="1"/>
-  <rect x="245.0" y="146.0" width="43.8" height="164.0" fill="#4ade80" rx="1"/>
-  <rect x="245.0" y="121.2" width="43.8" height="24.8" fill="#3aaf60" rx="1"/>
-  <rect x="245.0" y="88.3" width="43.8" height="32.9" fill="#4ade80" rx="1"/>
-  <text x="195.0" y="328" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Compressible</text>
-  <rect x="345.0" y="208.4" width="43.8" height="101.6" fill="#60a5fa" rx="1"/>
-  <rect x="345.0" y="160.0" width="43.8" height="48.5" fill="#4680c4" rx="1"/>
-  <rect x="345.0" y="142.1" width="43.8" height="17.9" fill="#60a5fa" rx="1"/>
-  <rect x="395.0" y="250.2" width="43.8" height="59.8" fill="#f87171" rx="1"/>
-  <rect x="395.0" y="200.6" width="43.8" height="49.6" fill="#c45050" rx="1"/>
-  <rect x="395.0" y="184.7" width="43.8" height="15.9" fill="#f87171" rx="1"/>
-  <rect x="445.0" y="207.6" width="43.8" height="102.4" fill="#f59e0b" rx="1"/>
-  <rect x="445.0" y="159.0" width="43.8" height="48.6" fill="#c47d08" rx="1"/>
-  <rect x="445.0" y="139.7" width="43.8" height="19.3" fill="#f59e0b" rx="1"/>
-  <rect x="495.0" y="185.6" width="43.8" height="124.4" fill="#4ade80" rx="1"/>
-  <rect x="495.0" y="136.9" width="43.8" height="48.6" fill="#3aaf60" rx="1"/>
-  <rect x="495.0" y="114.5" width="43.8" height="22.4" fill="#4ade80" rx="1"/>
-  <text x="445.0" y="328" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Incompressible</text>
-  <rect x="120" y="345" width="12" height="12" fill="#60a5fa" rx="2"/>
-  <text x="138" y="355" fill="#e6edf3" font-size="10" font-weight="500">lz4 (C)</text>
-  <rect x="120" y="363" width="12" height="12" fill="#f87171" rx="2"/>
-  <text x="138" y="373" fill="#e6edf3" font-size="10" font-weight="500">lz4rip (safe Rust)</text>
-  <rect x="330" y="345" width="12" height="12" fill="#f59e0b" rx="2"/>
-  <text x="348" y="355" fill="#e6edf3" font-size="10" font-weight="500">lz4_flex (unsafe Rust)</text>
-  <rect x="330" y="363" width="12" height="12" fill="#4ade80" rx="2"/>
-  <text x="348" y="373" fill="#e6edf3" font-size="10" font-weight="500">lz4_flex (safe Rust)</text>
-  <text x="110" y="398" fill="#e6edf3" font-size="9">bright = compress + decompress</text>
-  <text x="350" y="398" fill="#7d8590" font-size="9">dim = transfer @1 GB/s</text>
+  <rect x="108.0" y="185.9" width="66.5" height="124.1" fill="#60a5fa" rx="1"/>
+  <rect x="108.0" y="161.3" width="66.5" height="24.5" fill="#4680c4" rx="1"/>
+  <rect x="108.0" y="138.1" width="66.5" height="23.2" fill="#60a5fa" rx="1"/>
+  <rect x="184.0" y="183.7" width="66.5" height="126.3" fill="#f87171" rx="1"/>
+  <rect x="184.0" y="158.7" width="66.5" height="25.0" fill="#c45050" rx="1"/>
+  <rect x="184.0" y="132.0" width="66.5" height="26.7" fill="#f87171" rx="1"/>
+  <rect x="260.0" y="172.7" width="66.5" height="137.3" fill="#f59e0b" rx="1"/>
+  <rect x="260.0" y="148.1" width="66.5" height="24.6" fill="#c47d08" rx="1"/>
+  <rect x="260.0" y="121.7" width="66.5" height="26.4" fill="#f59e0b" rx="1"/>
+  <rect x="336.0" y="145.5" width="66.5" height="164.5" fill="#4ade80" rx="1"/>
+  <rect x="336.0" y="120.9" width="66.5" height="24.6" fill="#3aaf60" rx="1"/>
+  <rect x="336.0" y="88.3" width="66.5" height="32.7" fill="#4ade80" rx="1"/>
+  <text x="260.0" y="328" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Compressible</text>
+  <rect x="488.0" y="209.5" width="66.5" height="100.5" fill="#60a5fa" rx="1"/>
+  <rect x="488.0" y="161.5" width="66.5" height="48.0" fill="#4680c4" rx="1"/>
+  <rect x="488.0" y="143.9" width="66.5" height="17.6" fill="#60a5fa" rx="1"/>
+  <rect x="564.0" y="250.6" width="66.5" height="59.4" fill="#f87171" rx="1"/>
+  <rect x="564.0" y="201.5" width="66.5" height="49.1" fill="#c45050" rx="1"/>
+  <rect x="564.0" y="185.9" width="66.5" height="15.7" fill="#f87171" rx="1"/>
+  <rect x="640.0" y="208.6" width="66.5" height="101.4" fill="#f59e0b" rx="1"/>
+  <rect x="640.0" y="160.4" width="66.5" height="48.2" fill="#c47d08" rx="1"/>
+  <rect x="640.0" y="141.3" width="66.5" height="19.1" fill="#f59e0b" rx="1"/>
+  <rect x="716.0" y="185.6" width="66.5" height="124.4" fill="#4ade80" rx="1"/>
+  <rect x="716.0" y="137.4" width="66.5" height="48.2" fill="#3aaf60" rx="1"/>
+  <rect x="716.0" y="115.2" width="66.5" height="22.2" fill="#4ade80" rx="1"/>
+  <text x="640.0" y="328" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Incompressible</text>
+  <rect x="250" y="345" width="12" height="12" fill="#60a5fa" rx="2"/>
+  <text x="268" y="355" fill="#e6edf3" font-size="10" font-weight="500">lz4 (C)</text>
+  <rect x="250" y="363" width="12" height="12" fill="#f87171" rx="2"/>
+  <text x="268" y="373" fill="#e6edf3" font-size="10" font-weight="500">lz4rip (safe Rust)</text>
+  <rect x="460" y="345" width="12" height="12" fill="#f59e0b" rx="2"/>
+  <text x="478" y="355" fill="#e6edf3" font-size="10" font-weight="500">lz4_flex (unsafe Rust)</text>
+  <rect x="460" y="363" width="12" height="12" fill="#4ade80" rx="2"/>
+  <text x="478" y="373" fill="#e6edf3" font-size="10" font-weight="500">lz4_flex (safe Rust)</text>
+  <text x="240" y="398" fill="#e6edf3" font-size="9">bright = compress + decompress</text>
+  <text x="480" y="398" fill="#7d8590" font-size="9">dim = transfer @1 GB/s</text>
 </svg>
