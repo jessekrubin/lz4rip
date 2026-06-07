@@ -31,12 +31,13 @@ pub(super) fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize,
     Ok(n)
 }
 
-// High nibble of the token holds the literal length; `== 0xF0` means the literal
-// length is extended (>= 15) and must be read as a variable-length integer.
-const FIT_TOKEN_MASK_MATCH: u8 = 0b11110000;
+/// Masks the literal-length nibble (high nibble). When `(token & mask) == mask`,
+/// the literal length is extended (>= 15) via a variable-length integer.
+const LITERAL_LEN_MASK: u8 = 0b11110000;
 
+/// Masks the match-length nibble (low nibble). Test-only.
 #[cfg(test)]
-const FIT_TOKEN_MASK_LITERAL: u8 = 0b00001111;
+const MATCH_LEN_MASK: u8 = 0b00001111;
 
 #[test]
 fn check_token() {
@@ -51,8 +52,8 @@ fn check_token() {
 #[cfg(test)]
 #[inline]
 fn does_token_fit(token: u8) -> bool {
-    !((token & FIT_TOKEN_MASK_LITERAL) == FIT_TOKEN_MASK_LITERAL
-        || (token & FIT_TOKEN_MASK_MATCH) == FIT_TOKEN_MASK_MATCH)
+    !((token & MATCH_LEN_MASK) == MATCH_LEN_MASK
+        || (token & LITERAL_LEN_MASK) == LITERAL_LEN_MASK)
 }
 
 /// Decompress all bytes of `input` into `output`.
@@ -100,7 +101,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
         // common short-literal/long-match sequence (e.g. hdfs 52%, nci 28%) out
         // of the slow path.
         // aarch64: register comparisons first while the token load is in flight.
-        let literal_fits = (token & FIT_TOKEN_MASK_MATCH) != FIT_TOKEN_MASK_MATCH;
+        let literal_fits = (token & LITERAL_LEN_MASK) != LITERAL_LEN_MASK;
         #[cfg(target_arch = "aarch64")]
         let enter_fast = in_safe_region && output.pos() < safe_output_pos && literal_fits;
         #[cfg(not(target_arch = "aarch64"))]

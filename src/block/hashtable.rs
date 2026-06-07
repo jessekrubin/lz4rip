@@ -16,6 +16,7 @@ pub(crate) fn count_same_bytes_unchecked(
     end_offset: usize,
 ) -> usize {
     let max_input = input.len().saturating_sub(*cur + end_offset);
+    debug_assert!(candidate <= source.len());
     let max_cand = source.len() - candidate;
     let input_end = *cur + max_input.min(max_cand);
     let start = *cur;
@@ -239,8 +240,8 @@ pub(crate) fn copy_within_overlapping(
 /// Explicit u128 load/store (rather than `copy_nonoverlapping(.., 16)`) keeps the
 /// loop body as vector ld/st and prevents LLVM from re-rolling it into a memcpy.
 ///
-/// Caller must ensure `src_pos + len + 16 <= src.len()` and
-/// `*dst_pos + len + 16 <= dst.len()` (room for the trailing overcopy). Regions
+/// Caller must ensure `src_pos + len + 32 <= src.len()` and
+/// `*dst_pos + len + 32 <= dst.len()` (room for the trailing overcopy). Regions
 /// do not alias (src is input, dst is output).
 #[inline]
 pub(crate) fn wild_copy_literals(

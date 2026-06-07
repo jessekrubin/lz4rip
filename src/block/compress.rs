@@ -411,6 +411,12 @@ fn compress_into_vec(input: &[u8], prepend_size: bool) -> Vec<u8> {
     let max_compressed_size = get_maximum_output_size(input.len()) + prepend_bytes;
     let mut compressed: Vec<u8> = vec![0u8; max_compressed_size];
     let out = if prepend_size {
+        assert!(
+            input.len() <= u32::MAX as usize,
+            "compress_prepend_size: input length {} exceeds u32::MAX; \
+             use compress/compress_into for block format or FrameEncoder for streaming",
+            input.len()
+        );
         compressed[..4].copy_from_slice(&(input.len() as u32).to_le_bytes());
         &mut compressed[4..]
     } else {
@@ -559,6 +565,12 @@ impl Compressor {
         let max_compressed = get_maximum_output_size(input.len()) + prepend_bytes;
         let mut compressed = vec![0u8; max_compressed];
         let out = if prepend_size {
+            assert!(
+                input.len() <= u32::MAX as usize,
+                "compress_prepend_size: input length {} exceeds u32::MAX; \
+                 use compress/compress_into for block format or FrameEncoder for streaming",
+                input.len()
+            );
             compressed[..4].copy_from_slice(&(input.len() as u32).to_le_bytes());
             &mut compressed[4..]
         } else {
