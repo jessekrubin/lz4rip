@@ -405,50 +405,27 @@ pub fn compress_into(input: &[u8], output: &mut [u8]) -> Result<usize, CompressE
     compress_into_sink_with_dict::<false>(input, &mut VerifiedSliceSink::new(output, 0), b"")
 }
 
-#[inline]
-fn compress_into_vec(input: &[u8], prepend_size: bool) -> Vec<u8> {
-    let prepend_bytes = if prepend_size { 4 } else { 0 };
-    let max_compressed_size = get_maximum_output_size(input.len()) + prepend_bytes;
-    let mut compressed: Vec<u8> = vec![0u8; max_compressed_size];
-    let out = if prepend_size {
-        assert!(
-            input.len() <= u32::MAX as usize,
-            "compress_prepend_size: input length {} exceeds u32::MAX; \
-             use compress/compress_into for block format or FrameEncoder for streaming",
-            input.len()
-        );
-        compressed[..4].copy_from_slice(&(input.len() as u32).to_le_bytes());
-        &mut compressed[4..]
-    } else {
-        &mut compressed
-    };
-    let compressed_len =
-        compress_into_sink_with_dict::<false>(input, &mut VerifiedSliceSink::new(out, 0), b"")
-            .unwrap();
-    compressed.truncate(prepend_bytes + compressed_len);
-    compressed.shrink_to_fit();
-    compressed
-}
-
-/// Compress all bytes of `input` into `output`. The uncompressed size will be prepended as a little
-/// endian u32. Can be used in conjunction with `decompress_size_prepended`
-#[inline]
-pub fn compress_prepend_size(input: &[u8]) -> Vec<u8> {
-    compress_into_vec(input, true)
-}
-
 /// Compress all bytes of `input`.
 #[inline]
 pub fn compress(input: &[u8]) -> Vec<u8> {
-    compress_into_vec(input, false)
+    let max_compressed_size = get_maximum_output_size(input.len());
+    let mut compressed: Vec<u8> = vec![0u8; max_compressed_size];
+    let compressed_len = compress_into_sink_with_dict::<false>(
+        input,
+        &mut VerifiedSliceSink::new(&mut compressed, 0),
+        b"",
+    )
+    .unwrap();
+    compressed.truncate(compressed_len);
+    compressed.shrink_to_fit();
+    compressed
 }
 
 /// A reusable block compressor. Pre-allocates the hash table once and reuses
 /// it across calls. When constructed with [`Compressor::with_dict`], the
 /// dictionary is hashed once and restored via a 16 KB memcpy before each call.
 ///
-/// For one-shot compression, use [`compress`], [`compress_into`], or
-/// [`compress_prepend_size`] instead.
+/// For one-shot compression, use [`compress`] or [`compress_into`] instead.
 ///
 /// # Example
 /// ```
@@ -552,36 +529,14 @@ impl Compressor {
 
     /// Compress `input` into a new `Vec<u8>`.
     pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
-        self.compress_vec(input, false)
-    }
-
-    /// Compress `input` with the uncompressed size prepended as a little-endian u32.
-    pub fn compress_prepend_size(&mut self, input: &[u8]) -> Vec<u8> {
-        self.compress_vec(input, true)
-    }
-
-    fn compress_vec(&mut self, input: &[u8], prepend_size: bool) -> Vec<u8> {
-        let prepend_bytes = if prepend_size { 4 } else { 0 };
-        let max_compressed = get_maximum_output_size(input.len()) + prepend_bytes;
+        let max_compressed = get_maximum_output_size(input.len());
         let mut compressed = vec![0u8; max_compressed];
-        let out = if prepend_size {
-            assert!(
-                input.len() <= u32::MAX as usize,
-                "compress_prepend_size: input length {} exceeds u32::MAX; \
-                 use compress/compress_into for block format or FrameEncoder for streaming",
-                input.len()
-            );
-            compressed[..4].copy_from_slice(&(input.len() as u32).to_le_bytes());
-            &mut compressed[4..]
-        } else {
-            &mut compressed
-        };
         self.prepare_table();
         let compressed_len = if !self.dict.is_empty() {
             compress_internal::<_, true, true, _>(
                 input,
                 0,
-                &mut VerifiedSliceSink::new(out, 0),
+                &mut VerifiedSliceSink::new(&mut compressed, 0),
                 &mut self.table,
                 &self.dict,
                 self.dict.len(),
@@ -590,14 +545,14 @@ impl Compressor {
             compress_internal::<_, false, false, _>(
                 input,
                 0,
-                &mut VerifiedSliceSink::new(out, 0),
+                &mut VerifiedSliceSink::new(&mut compressed, 0),
                 &mut self.table,
                 b"",
                 0,
             )
         }
         .unwrap();
-        compressed.truncate(prepend_bytes + compressed_len);
+        compressed.truncate(compressed_len);
         compressed.shrink_to_fit();
         compressed
     }
@@ -814,9 +769,9 @@ mod tests {
         let dict = vec![b'a'; 1024 * 1024];
         let input = &b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaa"[..];
         let mut comp = Compressor::with_dict(&dict);
-        let compressed = comp.compress_prepend_size(input);
+        let compressed = comp.compress(input);
         let decomp = crate::block::decompress::Decompressor::with_dict(&dict);
-        let decompressed = decomp.decompress_size_prepended(&compressed).unwrap();
+        let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
         assert_eq!(decompressed, input);
     }
 

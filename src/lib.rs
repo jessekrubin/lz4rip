@@ -8,13 +8,9 @@
 //! lz4 frame format. The frame format supports streaming compression and
 //! decompression.
 //!
-//! The second way is through the
-//! [`decompress_size_prepended`](block/fn.decompress_size_prepended.html)
-//! and
-//! [`compress_prepend_size`](block/fn.compress_prepend_size.html)
-//! functions. These functions provide access to the lz4 block format, and
-//! don't support a streaming interface directly. You should only use these types
-//! if you know you specifically need the lz4 block format.
+//! The second way is through the [`compress`](block/fn.compress.html) and
+//! [`decompress`](block/fn.decompress.html) functions. These provide access to
+//! the lz4 block format without framing overhead.
 //!
 //! # Example: compress data on `stdin` with frame format
 //! This program reads data from `stdin`, compresses it and emits it to `stdout`.
@@ -48,10 +44,10 @@
 //!
 //! # Example: block format roundtrip
 //! ```
-//! use lz4rip::block::{compress_prepend_size, decompress_size_prepended};
+//! use lz4rip::block::{compress, decompress};
 //! let input: &[u8] = b"Hello people, what's up?";
-//! let compressed = compress_prepend_size(input);
-//! let uncompressed = decompress_size_prepended(&compressed).unwrap();
+//! let compressed = compress(input);
+//! let uncompressed = decompress(&compressed, input.len()).unwrap();
 //! assert_eq!(input, uncompressed);
 //! ```
 //!
@@ -86,8 +82,8 @@ pub mod frame;
 #[allow(dead_code)]
 mod fastcpy;
 
-pub use block::{compress, compress_into, compress_prepend_size, get_maximum_output_size};
-pub use block::{decompress, decompress_into, decompress_size_prepended};
+pub use block::{compress, compress_into, get_maximum_output_size};
+pub use block::{decompress, decompress_into};
 
 #[forbid(unsafe_code)]
 pub(crate) mod sink;

@@ -1,8 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use lz4rip::block::{compress_into, compress_prepend_size, decompress, decompress_into,
-                     decompress_size_prepended, get_maximum_output_size};
+use lz4rip::block::{compress_into, decompress, decompress_into, get_maximum_output_size};
 
 #[derive(Debug, arbitrary::Arbitrary)]
 struct Input {
@@ -18,12 +17,7 @@ fuzz_target!(|input: Input| {
         payload.extend_from_slice(&input.data);
     }
 
-    // prepend-size API
-    let compressed = compress_prepend_size(&payload);
-    let decompressed = decompress_size_prepended(&compressed).unwrap();
-    assert_eq!(payload, decompressed);
-
-    // raw API
+    // compress + decompress API
     let compressed = lz4rip::compress(&payload);
     let decompressed = decompress(&compressed, payload.len()).unwrap();
     assert_eq!(payload, decompressed);

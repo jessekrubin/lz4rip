@@ -8,7 +8,7 @@ use std::iter;
 #[cfg(feature = "frame")]
 use lz4rip::frame::BlockMode;
 use lz4rip::{
-    block::{compress_prepend_size, decompress, decompress_size_prepended, Decompressor},
+    block::{decompress, Decompressor},
     compress as compress_block,
 };
 
@@ -91,11 +91,6 @@ fn test_roundtrip(bytes: impl AsRef<[u8]>) {
     // compress with rust, decompress with rust
     let compressed_flex = compress_block(bytes);
     let decompressed = decompress(&compressed_flex, bytes.len()).unwrap();
-    assert_eq!(decompressed, bytes);
-
-    // compress with rust, decompress with rust, prepend size
-    let compressed_flex = compress_prepend_size(bytes);
-    let decompressed = decompress_size_prepended(&compressed_flex).unwrap();
     assert_eq!(decompressed, bytes);
 
     // Frame format
@@ -305,31 +300,39 @@ fn print_compression_ration(input: &'static [u8], name: &str) {
 mod checked_decode {
     use super::*;
 
+    fn decompress_with_size_prefix(data: &[u8]) -> Result<Vec<u8>, lz4rip::block::DecompressError> {
+        if data.len() < 4 {
+            return decompress(data, 0);
+        }
+        let size = u32::from_le_bytes(data[..4].try_into().unwrap()) as usize;
+        decompress(&data[4..], size)
+    }
+
     #[test]
     fn error_case_1() {
-        let _err = decompress_size_prepended(&[122, 1, 0, 1, 0, 10, 1, 0]);
+        let _err = decompress_with_size_prefix(&[122, 1, 0, 1, 0, 10, 1, 0]);
     }
     #[test]
     fn error_case_2() {
-        let _err = decompress_size_prepended(&[
+        let _err = decompress_with_size_prefix(&[
             44, 251, 49, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0,
         ]);
     }
     #[test]
     fn error_case_3() {
-        let _err = decompress_size_prepended(&[
+        let _err = decompress_with_size_prefix(&[
             7, 0, 0, 0, 0, 0, 0, 11, 0, 0, 7, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 1, 0, 0,
         ]);
     }
 
     #[test]
     fn error_case_4() {
-        let _err = decompress_size_prepended(&[0, 61, 0, 0, 0, 7, 0]);
+        let _err = decompress_with_size_prefix(&[0, 61, 0, 0, 0, 7, 0]);
     }
 
     #[test]
     fn error_case_5() {
-        let _err = decompress_size_prepended(&[8, 0, 0, 0, 4, 0, 0, 0]);
+        let _err = decompress_with_size_prefix(&[8, 0, 0, 0, 4, 0, 0, 0]);
     }
 }
 
@@ -478,13 +481,12 @@ fn bug_fuzz_6() {
 }
 
 fn test_decomp(data: &[u8]) {
-    let size = u32::from_le_bytes(data[0..4].try_into().unwrap());
+    let size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
     if size > 20_000_000 {
         return;
     }
-    // should not panic
-    let _ = decompress_size_prepended(data);
-    let _ = Decompressor::with_dict(data).decompress_size_prepended(data);
+    let _ = decompress(&data[4..], size);
+    let _ = Decompressor::with_dict(data).decompress(&data[4..], size);
 }
 
 #[test]

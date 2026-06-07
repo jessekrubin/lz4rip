@@ -4,10 +4,10 @@
 //!
 //! # Example: block format roundtrip
 //! ```
-//! use lz4rip::block::{compress_prepend_size, decompress_size_prepended};
+//! use lz4rip::block::{compress, decompress};
 //! let input: &[u8] = b"Hello people, what's up?";
-//! let compressed = compress_prepend_size(input);
-//! let uncompressed = decompress_size_prepended(&compressed).unwrap();
+//! let compressed = compress(input);
+//! let uncompressed = decompress(&compressed, input.len()).unwrap();
 //! assert_eq!(input, uncompressed);
 //! ```
 //!
@@ -18,10 +18,8 @@ pub(crate) mod compress;
 pub(crate) mod decompress;
 pub(crate) mod hashtable;
 
-pub use compress::{
-    compress, compress_into, compress_prepend_size, get_maximum_output_size, Compressor,
-};
-pub use decompress::{decompress, decompress_into, decompress_size_prepended, Decompressor};
+pub use compress::{compress, compress_into, get_maximum_output_size, Compressor};
+pub use decompress::{decompress, decompress_into, Decompressor};
 
 use core::{error::Error, fmt};
 
@@ -121,18 +119,6 @@ impl fmt::Display for CompressError {
 impl Error for DecompressError {}
 
 impl Error for CompressError {}
-
-/// This can be used in conjunction with `decompress_size_prepended`.
-/// It will read the first 4 bytes as little-endian encoded length, and return
-/// the rest of the bytes after the length encoding.
-#[inline]
-pub fn uncompressed_size(input: &[u8]) -> Result<(usize, &[u8]), DecompressError> {
-    let size = input.get(..4).ok_or(DecompressError::ExpectedAnotherByte)?;
-    let size: &[u8; 4] = size.try_into().unwrap();
-    let uncompressed_size = u32::from_le_bytes(*size) as usize;
-    let rest = &input[4..];
-    Ok((uncompressed_size, rest))
-}
 
 #[test]
 fn integer_roundtrip() {

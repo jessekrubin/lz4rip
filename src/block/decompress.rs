@@ -52,8 +52,7 @@ fn check_token() {
 #[cfg(test)]
 #[inline]
 fn does_token_fit(token: u8) -> bool {
-    !((token & MATCH_LEN_MASK) == MATCH_LEN_MASK
-        || (token & LITERAL_LEN_MASK) == LITERAL_LEN_MASK)
+    !((token & MATCH_LEN_MASK) == MATCH_LEN_MASK || (token & LITERAL_LEN_MASK) == LITERAL_LEN_MASK)
 }
 
 /// Decompress all bytes of `input` into `output`.
@@ -345,14 +344,6 @@ pub fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize, Decompr
     decompress_internal::<false, _>(input, &mut SliceSink::new(output, 0), b"")
 }
 
-/// Decompress all bytes of `input` into a new vec. The first 4 bytes are the uncompressed size in
-/// little endian. Can be used in conjunction with `compress_prepend_size`
-#[inline]
-pub fn decompress_size_prepended(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
-    let (uncompressed_size, input) = super::uncompressed_size(input)?;
-    decompress(input, uncompressed_size)
-}
-
 /// Decompress all bytes of `input` into a new vec.
 ///
 /// `uncompressed_size` must be >= the actual decompressed output size.
@@ -369,8 +360,8 @@ pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, Dec
 
 /// A block decompressor seeded with an external dictionary.
 ///
-/// When no dictionary is needed, use the free functions [`decompress`],
-/// [`decompress_into`], or [`decompress_size_prepended`] instead.
+/// When no dictionary is needed, use the free functions [`decompress`] or
+/// [`decompress_into`] instead.
 pub struct Decompressor {
     dict: Vec<u8>,
 }
@@ -416,13 +407,6 @@ impl Decompressor {
         output: &mut [u8],
     ) -> Result<usize, DecompressError> {
         decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), &self.dict)
-    }
-
-    /// Decompress `input` where the first 4 bytes encode the uncompressed size
-    /// as a little-endian u32.
-    pub fn decompress_size_prepended(&self, input: &[u8]) -> Result<Vec<u8>, DecompressError> {
-        let (uncompressed_size, input) = super::uncompressed_size(input)?;
-        self.decompress(input, uncompressed_size)
     }
 }
 
