@@ -594,7 +594,7 @@ fn run_sweep(dict: &[u8]) {
                 decompress_ns,
             };
             if !first {
-                write!(out, ",\n").unwrap();
+                writeln!(out, ",").unwrap();
             }
             write!(out, "  {}", r.to_json()).unwrap();
             first = false;
