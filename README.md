@@ -41,9 +41,7 @@ assert_eq!(&output[..n], input);
 ```
 
 The `_into` variants write into a caller-provided buffer. The plain variants
-allocate. `compress_prepend_size` / `decompress_size_prepended` frame the
-compressed payload with a little-endian u32 length prefix for self-describing
-messages.
+allocate.
 
 ```rust
 // One-shot (allocating)
@@ -53,10 +51,6 @@ fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>>;
 // One-shot (into caller buffer)
 fn compress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
 fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
-
-// Size-prepended convenience
-fn compress_prepend_size(input: &[u8]) -> Vec<u8>;
-fn decompress_size_prepended(input: &[u8]) -> Result<Vec<u8>>;
 ```
 
 ### Dictionary compression

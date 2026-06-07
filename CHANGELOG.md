@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-07
+
+### Breaking
+
+- Removed `compress_prepend_size` and `decompress_size_prepended` (free functions and `Compressor`/`Decompressor` methods). The 4-byte-size-prefixed block format was non-standard. Callers who need a size prefix can prepend it themselves.
+- Removed `uncompressed_size` helper from `block` module.
+
 ## [0.2.1] - 2026-06-05
 
 - README: moved performance charts to top, added sweep chart, moved CVE table to SAFETY.md
