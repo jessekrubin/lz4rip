@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-08
+
+- Added `categories = ["compression"]` to Cargo.toml metadata
+
 ## [0.3.0] - 2026-06-07
 
 ### Breaking
