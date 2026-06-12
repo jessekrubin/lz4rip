@@ -271,7 +271,6 @@ mod tests {
         let c_cover = comp_cover.compress(&test_msg);
         let c_naive = comp_naive.compress(&test_msg);
 
-
         // Both should compress well. With uniform synthetic data the
         // difference is small; real-world data is where COVER shines.
         assert!(c_cover.len() < test_msg.len());

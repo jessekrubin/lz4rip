@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-11
+
+### Breaking
+
+- Removed legacy frame decoding (`LZ4F_LEGACY_MAGIC_NUMBER`, `FrameInfo::is_legacy_frame()`, `BlockSize::Max8MB`). Only standard LZ4 frames (magic `0x184D2204`) are supported.
+
+### Changed
+
+- Hash tables are 8 KB across the board: 4K×u16 (8 KB) for inputs below 64 KB, 2K×u32 (8 KB) above. Half the 16 KB that C lz4 and lz4_flex use.
+- `Compressor` uses epoch-based table reuse for inputs up to 8 KB, skipping the hash table clear between calls
+- `Compressor::with_dict` uses dual 2K×u16 tables (8 KB total): a cleared main table and a read-only pristine table probed on main-table miss. Falls back to single-table path when dict+input exceeds u16 range.
+- `Compressor` internals restructured as `Plain`/`Dict` enum, each variant holds only the tables it needs
+- `compress_internal` is self-contained (no `Option<&T>` dict_table parameter in the hot loop). Separate `compress_with_dict_table` for the dual-table dict path.
+
+### Added
+
+- `DictTrainer`: COVER-based dictionary trainer for block compression. Collects samples, selects high-frequency segments, outputs a raw dict for `Compressor::with_dict`
+
 ## [0.3.1] - 2026-06-08
 
 - Added `categories = ["compression"]` to Cargo.toml metadata

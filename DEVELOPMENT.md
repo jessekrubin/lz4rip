@@ -10,19 +10,46 @@ echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governo
 
 Pin to a single core with `taskset -c 0` to avoid cross-core migration noise.
 
-Generate the pipeline chart:
+All chart commands require `LZ4RIP_HW_EXTRAS` to inject the governor/turbo subtitle
+on systems where sysfs is unavailable (or when the governor was not changed before
+running). Always set it:
+
 ```sh
-taskset -c 0 cargo run --release --example lz4rip_bench 2>/dev/null > bench_results.json
-LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py bench_results.json doc/charts
+export LZ4RIP_HW_EXTRAS="performance governor,turbo off"
 ```
 
-The chart subtitle shows CPU model, governor, and turbo state. On systems where
-`/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor` and turbo sysfs entries
-are not available, set `LZ4RIP_HW_EXTRAS` to supply those labels manually.
-
-Rerun only lz4rip (other implementations are cached in `~/.cache/lz4rip/`):
+Generate all charts (pipeline, summary, dict2k, structured, sweep):
 ```sh
-taskset -c 0 cargo run --release --example lz4rip_bench -- --impl lz4rip 2>/dev/null > bench_results.json
+# pipeline + summary + dict2k
+taskset -c 0 cargo run --release --example lz4rip_bench 2>/dev/null | \
+  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py /dev/stdin doc/charts/x86_64
+
+# structured (no-dict and dict variants)
+taskset -c 0 cargo run --release --example lz4rip_bench -- --structured 2>/dev/null | \
+  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --structured /dev/stdin doc/charts/x86_64/structured
+taskset -c 0 cargo run --release --example lz4rip_bench -- --structured-dict 2>/dev/null | \
+  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --structured-dict /dev/stdin doc/charts/x86_64/structured
+
+# sweep (slow, ~5 min)
+# generate_sweep_chart aborts if LZ4RIP_HW_EXTRAS is unset and sysfs governor != performance
+LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 -c \
+  "import sys; sys.path.insert(0,'benches'); from pathlib import Path; import plot_bench; plot_bench.generate_sweep_chart(Path('doc/charts/x86_64'))"
+```
+
+Rerun only lz4rip (other implementations served from `~/.cache/lz4rip/`), then
+regenerate charts from merged cache:
+```sh
+taskset -c 0 cargo run --release --example lz4rip_bench -- --impl lz4rip 2>/dev/null > /tmp/lz4rip_results.json
+python3 - <<'EOF'
+import json
+from pathlib import Path
+cache = Path.home() / '.cache/lz4rip'
+results = []
+for f in ['C_lz4.jsonl', 'lz4rip.jsonl', 'lz4_flex_unsafe.jsonl', 'lz4_flex.jsonl']:
+    results += [json.loads(l) for l in (cache / f).read_text().splitlines() if l.strip()]
+Path('/tmp/merged_results.json').write_text(json.dumps(results))
+EOF
+LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py /tmp/merged_results.json doc/charts/x86_64
 ```
 
 ## Miri

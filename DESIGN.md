@@ -30,26 +30,30 @@ Crossover analysis against `bs6` (C lz4's default) at various transfer bandwidth
 
 Below ~50 MB/s, the 8pp ratio difference dominates and bs6 is 1-2% faster end-to-end. Above that, bs3's compression speed advantage takes over. For memory-to-memory, IPC, local storage, and datacenter networking, bs3 is the right choice.
 
-## Generational hash table
+## Hash tables
 
-Two hash table implementations selected by input size:
+Two hash table implementations, both 8 KB, selected by input size:
 
 | Table | Entries | Value width | Footprint | Used when |
 |---|---|---|---|---|
-| `HashTable4KU16` | 8K | 16-bit | 16 KB | dict + input < 64 KB |
-| `HashTable4K` | 4K | 32-bit | 16 KB | larger inputs |
+| `HashTableU32U16` | 4K | 16-bit | 8 KB | dict + input < 64 KB |
+| `HashTableU32` | 2K | 32-bit | 8 KB | larger inputs |
 
-The 16-bit table fits in L1 cache and avoids 32-bit position tracking overhead for short messages. C lz4 uses a single 16 KB table (`LZ4_hash4`) for all input sizes.
+Consistent 8 KB L1d footprint. Half the 16 KB that C lz4 (`LZ4_hash4`) and lz4_flex use.
 
-Selection happens at the call site in `compress_into_with_dict` in `compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
+`Compressor::with_dict` uses two `HashTableU32U16` tables (8 KB total): a cleared main table and a read-only pristine table probed on main-table miss. Falls back to the single-table free-function path when dict+input exceeds u16 range.
+
+`Compressor` without dict uses epoch-based table reuse for inputs up to 8 KB: instead of clearing the hash table between calls, it advances a stream offset so stale entries fall outside `MAX_DISTANCE` and are rejected by the distance check.
+
+Selection happens at the call site in `compress_into_sink_with_dict` in `compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
 
 ## 5-byte hash
 
-C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative constant. lz4rip reads 5 bytes (via an 8-byte native-endian load, shifted) and hashes with a 64-bit PRIME5 constant. The extra byte reduces collisions across 4K-8K entry tables.
+C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative constant. lz4rip reads 5 bytes (via an 8-byte native-endian load, shifted) and hashes with a 64-bit PRIME5 constant. The extra byte reduces collisions across 2K-4K entry tables.
 
 The PRIME5 constant is endianness-aware: different values for little-endian and big-endian targets in `hashtable.rs`, since the hash input comes from native-endian reads.
 
-The `HashTable4KU16` type uses PRIME5 >> 51 to index 8K entries. `HashTable4K` uses PRIME5 >> 52 for 4K entries.
+Hash shifts are derived from the table size: `>> (64 - ilog2(HASHTABLE_SIZE))`. `HashTableU32U16` uses `>> 52` (4K entries), `HashTableU32` uses `>> 53` (2K entries).
 
 ## Compile-time specialization
 
@@ -57,7 +61,7 @@ The `HashTable4KU16` type uses PRIME5 >> 51 to index 8K entries. `HashTable4K` u
 
 | Parameter | Variants | Effect |
 |---|---|---|
-| `T: HashTable` | `HashTable4KU16`, `HashTable4K` | Table size and value width |
+| `T: HashTable` | `HashTableU32U16`, `HashTableU32` | Table size and value width |
 | `USE_DICT: bool` | true, false | Dictionary lookup code |
 | `HAS_OFFSET: bool` | true, false | Offset arithmetic for dict positions |
 | `S: Sink` | `SliceSink`, `VerifiedSliceSink` | Bounds-checked vs pre-verified writes |
@@ -80,16 +84,16 @@ C lz4 uses the same technique. lz4_flex does not.
 
 All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in two internal modules:
 
-- `hashtable.rs`: unchecked memory reads (`read_u16_unchecked`, `read_u32_unchecked`, `read_byte_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `count_same_bytes`. Each has `debug_assert` guards on bounds.
+- `hashtable.rs`: unchecked memory reads (`read_u16_unchecked`, `get_batch_unchecked`, `read_byte_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`, `count_same_bytes_unchecked`. Each has `debug_assert` guards on bounds.
 - `verified_sink.rs`: `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
 
 The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
 
 ## Dictionary compression
 
-Dictionary initialization in `compress_into_with_dict` hashes every 3rd byte of the dictionary, not every byte. This reduces setup cost while maintaining reasonable match coverage.
+Dictionary initialization in `init_dict` hashes every 3rd byte of the dictionary, not every byte. This reduces setup cost while maintaining reasonable match coverage.
 
-`Compressor` caches the pre-hashed dictionary table and restores it via memcpy before each `compress_into` call. 16 KB memcpy per call, but avoids re-hashing.
+`Compressor::with_dict` hashes the dictionary once into a read-only `HashTableU32U16` (4 KB). Each `compress_into` call clears the 4 KB main table and probes the pristine table on miss. The `Compressor` is structured as a `Plain`/`Dict` enum so each variant holds only the tables it needs.
 
 Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB.
 

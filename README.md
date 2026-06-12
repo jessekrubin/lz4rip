@@ -1,11 +1,22 @@
 # lz4rip
 
-Rust LZ4 compression. 5-8% faster than C lz4 end-to-end (compress + 1 GB/s transfer + decompress, geomean across 16 corpus files).
+Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with all algorithm logic under `#[forbid(unsafe_code)]`.
+
 Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
 ```toml
-lz4rip = "0.2"
+lz4rip = "0.4"
 ```
+
+## Why lz4rip
+
+- **C lz4 speed, safe by construction.** Unsafe is isolated to two files for raw memory ops. See [SAFETY.md](SAFETY.md).
+- **8 KB hash tables.** Half the L1d footprint of C lz4 and lz4_flex.
+- **Built-in dictionary training.** `DictTrainer` learns a dictionary from your data. No external tools needed.
+- **Hot-loop friendly.** Epoch-based table reuse skips clearing between calls for small inputs.
+- **`no_std` ready.** Block format works with just `alloc`. Frame format requires `std`.
+
+See [DESIGN.md](DESIGN.md) for how it all works.
 
 ## Performance
 
@@ -17,6 +28,13 @@ lz4rip = "0.2"
 ![LZ4 Pipeline Detail](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/pipeline.svg)
 ![LZ4 Size Sweep](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/sweep.svg)
 ![LZ4 Dict 2K](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/dict2k.svg)
+</details>
+
+<details>
+<summary>x86_64 structured data (JSON/XML, with and without dictionary)</summary>
+
+![LZ4 Structured Dict 2K](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/structured/dict2k.svg)
+![LZ4 Structured No Dict](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/structured/no_dict.svg)
 </details>
 
 <details>
@@ -43,20 +61,10 @@ assert_eq!(&output[..n], input);
 The `_into` variants write into a caller-provided buffer. The plain variants
 allocate.
 
-```rust
-// One-shot (allocating)
-fn compress(input: &[u8]) -> Vec<u8>;
-fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>>;
-
-// One-shot (into caller buffer)
-fn compress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
-fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize>;
-```
-
 ### Dictionary compression
 
 Pre-seed the compressor and decompressor with shared context for better ratios
-on small messages (e.g. JSON records, log lines).
+on small messages.
 
 ```rust
 use lz4rip::block::{Compressor, Decompressor, get_maximum_output_size};
@@ -73,11 +81,25 @@ let output = decomp.decompress(&buf[..n], input.len()).unwrap();
 assert_eq!(&output[..], input);
 ```
 
+### Dictionary training
+
+Build a dictionary from sample data using the built-in COVER trainer.
+
+```rust
+use lz4rip::block::DictTrainer;
+
+let mut trainer = DictTrainer::new(2048); // max dict size in bytes
+for sample in &samples {
+    trainer.add_sample(sample);
+}
+let dict = trainer.train();
+// Use with Compressor::with_dict(&dict) / Decompressor::with_dict(&dict)
+```
+
 ## Frame format
 
 The frame format (feature `frame`, on by default) wraps block compression in the
 standard LZ4 frame container with checksums, content size, and streaming support.
-`FrameEncoder` and `FrameDecoder` implement `Write` and `Read`.
 
 ```rust
 use lz4rip::frame::{FrameEncoder, FrameDecoder};
@@ -96,22 +118,10 @@ decoder.read_to_string(&mut output).unwrap();
 assert_eq!(output, "Hello frame format!");
 ```
 
-## Design
-
-Divergences from C lz4 and lz4_flex that explain the performance difference. See [DESIGN.md](DESIGN.md) for details.
-
-- Aggressive skip acceleration (8 vs C lz4's 64 misses before stepping)
-- Generational hash table (16-bit for small inputs, 32-bit for large)
-- 5-byte PRIME5 hash (vs C lz4's 4-byte KNUTH)
-- Compile-time specialization over hash table type, dict mode, and sink type
-- No HC/OPT/MID. Use zstd for ratio.
-
 ## Safety
 
-All compression and decompression logic is `#[forbid(unsafe_code)]`. See
-[SAFETY.md](SAFETY.md) for the unsafe boundary details and a catalog of C lz4
-memory safety bugs that Rust prevents by construction.
+[SAFETY.md](SAFETY.md) documents the unsafe boundary and catalogs C lz4 memory safety bugs that Rust prevents by construction.
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for benchmarking, fuzzing, and feature flag details.
+[DEVELOPMENT.md](DEVELOPMENT.md) covers benchmarking, fuzzing, and feature flags.
