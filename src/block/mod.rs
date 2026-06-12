@@ -16,10 +16,13 @@
 pub(crate) mod compress;
 #[forbid(unsafe_code)]
 pub(crate) mod decompress;
+#[forbid(unsafe_code)]
+mod dict;
 pub(crate) mod hashtable;
 
 pub use compress::{compress, compress_into, get_maximum_output_size, Compressor};
 pub use decompress::{decompress, decompress_into, Decompressor};
+pub use dict::DictTrainer;
 
 use core::{error::Error, fmt};
 
