@@ -18,8 +18,8 @@ use alloc::vec;
 #[allow(unused_imports)]
 use alloc::vec::Vec;
 
-pub(crate) use super::hashtable::HashTable4K;
-pub(crate) use super::hashtable::HashTable4KU16;
+pub(crate) use super::hashtable::HashTableU32;
+pub(crate) use super::hashtable::HashTableU32U16;
 use super::{CompressError, WINDOW_SIZE};
 
 /// Skip acceleration: step grows by 1 every `1 << N` consecutive non-matches.
@@ -149,7 +149,7 @@ pub(crate) fn compress_internal<
     input: &[u8],
     input_pos: usize,
     output: &mut S,
-    dict: &mut T,
+    table: &mut T,
     ext_dict: &[u8],
     input_stream_offset: usize,
 ) -> Result<usize, CompressError> {
@@ -186,11 +186,10 @@ pub(crate) fn compress_internal<
 
     if cur == 0 && input_stream_offset == 0 {
         let hash = T::get_hash_at_unchecked(input, 0);
-        dict.put_at(hash, 0);
+        table.put_at(hash, 0);
         cur = 1;
     }
 
-    // Pre-hash: compute the hash of the next position before checking the current one.
     let mut forward_hash = T::get_hash_at_unchecked(input, cur);
 
     loop {
@@ -210,31 +209,26 @@ pub(crate) fn compress_internal<
             }
 
             let hash = forward_hash;
-            candidate = dict.get_at(hash);
+            candidate = table.get_at(hash);
             forward_hash = T::get_hash_at_unchecked(input, next_cur);
-            dict.put_at(hash, cur + input_stream_offset);
+            table.put_at(hash, cur + input_stream_offset);
 
             debug_assert!(candidate <= input_stream_offset + cur);
 
-            if input_stream_offset + cur - candidate > MAX_DISTANCE {
-                cur = next_cur;
-                continue;
-            }
-
-            if candidate >= input_stream_offset {
+            if candidate >= input_stream_offset
+                && input_stream_offset + cur - candidate <= MAX_DISTANCE
+            {
                 offset = (input_stream_offset + cur - candidate) as u16;
                 candidate -= input_stream_offset;
                 candidate_source = input;
-            } else if USE_DICT {
-                debug_assert!(
-                    candidate >= ext_dict_stream_offset,
-                    "Lost history in ext dict mode"
-                );
+            } else if USE_DICT
+                && candidate >= ext_dict_stream_offset
+                && input_stream_offset + cur - candidate <= MAX_DISTANCE
+            {
                 offset = (input_stream_offset + cur - candidate) as u16;
                 candidate -= ext_dict_stream_offset;
                 candidate_source = ext_dict;
             } else {
-                debug_assert!(input_pos == 0, "Lost history in prefix mode");
                 cur = next_cur;
                 continue;
             }
@@ -270,7 +264,7 @@ pub(crate) fn compress_internal<
             );
 
             let hash = T::get_hash_at_unchecked(input, cur - 2);
-            dict.put_at(hash, cur - 2 + input_stream_offset);
+            table.put_at(hash, cur - 2 + input_stream_offset);
 
             let token = token_from_literal_and_match_length(lit_len, duplicate_length);
             push_byte(output, token);
@@ -286,14 +280,9 @@ pub(crate) fn compress_internal<
             }
             literal_start = cur;
 
-            // Re-match: after encoding, test if the current position also matches.
-            // Chains matches without re-entering the search loop (skips step reset,
-            // re-hashing). Only in non-dict mode to keep dict code simple.
-            // The hash must NOT be stored on failure, or the search loop's first
-            // iteration would self-match at offset 0.
             if !USE_DICT && cur <= end_pos_check {
                 let hash = T::get_hash_at_unchecked(input, cur);
-                let rematch = dict.get_at(hash);
+                let rematch = table.get_at(hash);
 
                 if input_stream_offset + cur - rematch <= MAX_DISTANCE
                     && rematch >= input_stream_offset
@@ -302,19 +291,149 @@ pub(crate) fn compress_internal<
                     if super::hashtable::get_batch_unchecked(input, cur)
                         == super::hashtable::get_batch_unchecked(input, rc)
                     {
-                        dict.put_at(hash, cur + input_stream_offset);
+                        table.put_at(hash, cur + input_stream_offset);
                         candidate = rc;
                         candidate_source = input;
                         offset = (input_stream_offset + cur - rematch) as u16;
                         continue;
                     }
                 }
-                // Reuse hash for the search loop's first iteration.
                 forward_hash = hash;
             } else if cur <= end_pos_check {
                 forward_hash = T::get_hash_at_unchecked(input, cur);
             }
             break;
+        }
+    }
+}
+
+/// Dual-table compression for `Compressor::with_dict`. The main table
+/// tracks input positions; `dict_table` is a read-only snapshot of the
+/// dictionary. On a main-table miss, `dict_table` is probed as fallback.
+#[inline(never)]
+fn compress_with_dict_table<T: HashTable, S: Sink>(
+    input: &[u8],
+    output: &mut S,
+    table: &mut T,
+    dict_table: &T,
+    ext_dict: &[u8],
+    input_stream_offset: usize,
+) -> Result<usize, CompressError> {
+    assert!(ext_dict.len() <= super::WINDOW_SIZE);
+    assert!(ext_dict.len() <= input_stream_offset);
+    assert!(input_stream_offset
+        .checked_add(input.len())
+        .and_then(|i| i.checked_add(ext_dict.len()))
+        .is_some_and(|i| i <= isize::MAX as usize));
+    if output.capacity() - output.pos() < get_maximum_output_size(input.len()) {
+        return Err(CompressError::OutputTooSmall);
+    }
+
+    let output_start_pos = output.pos();
+    if input.len() < LZ4_MIN_LENGTH {
+        handle_last_literals(output, input, 0);
+        return Ok(output.pos() - output_start_pos);
+    }
+
+    let ext_dict_stream_offset = input_stream_offset - ext_dict.len();
+    let end_pos_check = input.len() - MFLIMIT;
+    let mut literal_start = 0;
+
+    let hash = T::get_hash_at_unchecked(input, 0);
+    table.put_at(hash, input_stream_offset);
+    let mut cur = 1;
+
+    let mut forward_hash = T::get_hash_at_unchecked(input, cur);
+
+    loop {
+        let mut candidate;
+        let mut candidate_source;
+        let mut offset;
+        let mut non_match_count = 1 << INCREASE_STEPSIZE_BITSHIFT;
+
+        loop {
+            let step = non_match_count >> INCREASE_STEPSIZE_BITSHIFT;
+            non_match_count += 1;
+            let next_cur = cur + step;
+
+            if next_cur > end_pos_check + 1 {
+                handle_last_literals(output, input, literal_start);
+                return Ok(output.pos() - output_start_pos);
+            }
+
+            let hash = forward_hash;
+            candidate = table.get_at(hash);
+            forward_hash = T::get_hash_at_unchecked(input, next_cur);
+            table.put_at(hash, cur + input_stream_offset);
+
+            if candidate >= input_stream_offset
+                && input_stream_offset + cur - candidate <= MAX_DISTANCE
+            {
+                offset = (input_stream_offset + cur - candidate) as u16;
+                candidate -= input_stream_offset;
+                candidate_source = input;
+            } else {
+                candidate = dict_table.get_at(hash);
+                if candidate < input_stream_offset
+                    && input_stream_offset + cur - candidate <= MAX_DISTANCE
+                {
+                    offset = (input_stream_offset + cur - candidate) as u16;
+                    candidate -= ext_dict_stream_offset;
+                    candidate_source = ext_dict;
+                } else {
+                    cur = next_cur;
+                    continue;
+                }
+            }
+            let cand_bytes: u32 =
+                super::hashtable::get_batch_unchecked(candidate_source, candidate);
+            let curr_bytes: u32 = super::hashtable::get_batch_unchecked(input, cur);
+
+            if cand_bytes == curr_bytes {
+                break;
+            }
+            cur = next_cur;
+        }
+
+        backtrack_match(
+            input,
+            &mut cur,
+            literal_start,
+            candidate_source,
+            &mut candidate,
+        );
+
+        let lit_len = cur - literal_start;
+
+        cur += MINMATCH;
+        candidate += MINMATCH;
+        let duplicate_length = super::hashtable::count_same_bytes_unchecked(
+            input,
+            &mut cur,
+            candidate_source,
+            candidate,
+            END_OFFSET,
+        );
+
+        let hash = T::get_hash_at_unchecked(input, cur - 2);
+        table.put_at(hash, cur - 2 + input_stream_offset);
+
+        let token = token_from_literal_and_match_length(lit_len, duplicate_length);
+        push_byte(output, token);
+        if lit_len >= 0xF {
+            write_integer(output, lit_len - 0xF);
+        }
+        if lit_len > 0 {
+            copy_literals_wild(output, input, literal_start, lit_len);
+        }
+        push_u16(output, offset);
+        if duplicate_length >= 0xF {
+            write_integer(output, duplicate_length - 0xF);
+        }
+        literal_start = cur;
+
+        if cur <= end_pos_check {
+            forward_hash = T::get_hash_at_unchecked(input, cur);
         }
     }
 }
@@ -350,7 +469,7 @@ pub(crate) fn compress_into_sink_with_dict<const USE_DICT: bool>(
         return compress_into_sink_with_dict::<false>(input, output, b"");
     }
     if dict_data.len() + input.len() < u16::MAX as usize {
-        let mut dict = HashTable4KU16::new();
+        let mut dict = HashTableU32U16::new();
         init_dict(&mut dict, &mut dict_data);
         compress_internal::<_, USE_DICT, USE_DICT, _>(
             input,
@@ -361,7 +480,7 @@ pub(crate) fn compress_into_sink_with_dict<const USE_DICT: bool>(
             dict_data.len(),
         )
     } else {
-        let mut dict = HashTable4K::new();
+        let mut dict = HashTableU32::new();
         init_dict(&mut dict, &mut dict_data);
         compress_internal::<_, USE_DICT, USE_DICT, _>(
             input,
@@ -423,7 +542,8 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 
 /// A reusable block compressor. Pre-allocates the hash table once and reuses
 /// it across calls. When constructed with [`Compressor::with_dict`], the
-/// dictionary is hashed once and restored via a 16 KB memcpy before each call.
+/// dictionary is hashed once; a read-only pristine table is probed as
+/// fallback on main-table misses.
 ///
 /// For one-shot compression, use [`compress`] or [`compress_into`] instead.
 ///
@@ -437,17 +557,32 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
 pub struct Compressor {
-    table: HashTable4K,
-    pristine: Option<HashTable4K>,
-    dict: Vec<u8>,
+    tables: CompressorTables,
+}
+
+enum CompressorTables {
+    Plain {
+        table: HashTableU32,
+        stream_offset: usize,
+    },
+    Dict {
+        table: HashTableU32U16,
+        pristine: HashTableU32U16,
+        dict: Vec<u8>,
+    },
 }
 
 impl fmt::Debug for Compressor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Compressor")
-            .field("dict_len", &self.dict.len())
-            .field("has_pristine", &self.pristine.is_some())
-            .finish()
+        match &self.tables {
+            CompressorTables::Plain { .. } => {
+                f.debug_struct("Compressor").field("dict_len", &0).finish()
+            }
+            CompressorTables::Dict { dict, .. } => f
+                .debug_struct("Compressor")
+                .field("dict_len", &dict.len())
+                .finish(),
+        }
     }
 }
 
@@ -455,16 +590,19 @@ impl Compressor {
     /// Create a new compressor without a dictionary.
     pub fn new() -> Self {
         Compressor {
-            table: HashTable4K::new(),
-            pristine: None,
-            dict: Vec::new(),
+            tables: CompressorTables::Plain {
+                table: HashTableU32::new(),
+                stream_offset: 0,
+            },
         }
     }
 
     /// Create a new compressor seeded with an external dictionary.
     ///
-    /// The dictionary is hashed once during construction. Each subsequent
-    /// call restores the pristine table state via a 16 KB memcpy.
+    /// The dictionary is hashed once during construction into an 8 KB
+    /// read-only table. Each call clears the 8 KB main table and probes
+    /// the pristine table on miss (16 KB total in L1d when dict+input
+    /// fits in u16; falls back to a fresh single-table path otherwise).
     ///
     /// If `dict` is shorter than 4 bytes, it is ignored.
     pub fn with_dict(dict: &[u8]) -> Self {
@@ -476,26 +614,23 @@ impl Compressor {
         } else {
             dict
         };
-        let mut pristine = HashTable4K::new();
+        let mut pristine = HashTableU32U16::new();
         let mut dict_ref = trimmed;
         init_dict(&mut pristine, &mut dict_ref);
-        let mut table = HashTable4K::new();
-        table.copy_from(&pristine);
         Compressor {
-            table,
-            pristine: Some(pristine),
-            dict: trimmed.to_vec(),
+            tables: CompressorTables::Dict {
+                table: HashTableU32U16::new(),
+                pristine,
+                dict: trimmed.to_vec(),
+            },
         }
     }
 
-    #[inline]
-    fn prepare_table(&mut self) {
-        if let Some(ref pristine) = self.pristine {
-            self.table.copy_from(pristine);
-        } else {
-            self.table.clear();
-        }
-    }
+    /// Epoch-based table reuse threshold. Inputs up to this size skip
+    /// the memset and rely on the distance check to reject stale entries.
+    /// Above this size the offset arithmetic in the hot loop costs more
+    /// than the memset it saves.
+    const EPOCH_THRESHOLD: usize = 8 * 1024;
 
     /// Compress `input` into `output`, returning the number of compressed bytes.
     ///
@@ -505,25 +640,55 @@ impl Compressor {
         input: &[u8],
         output: &mut [u8],
     ) -> Result<usize, CompressError> {
-        self.prepare_table();
-        if !self.dict.is_empty() {
-            compress_internal::<_, true, true, _>(
-                input,
-                0,
-                &mut VerifiedSliceSink::new(output, 0),
-                &mut self.table,
-                &self.dict,
-                self.dict.len(),
-            )
-        } else {
-            compress_internal::<_, false, false, _>(
-                input,
-                0,
-                &mut VerifiedSliceSink::new(output, 0),
-                &mut self.table,
-                b"",
-                0,
-            )
+        match &mut self.tables {
+            CompressorTables::Dict {
+                table,
+                pristine,
+                dict,
+            } => {
+                if dict.len() + input.len() < u16::MAX as usize {
+                    table.clear();
+                    compress_with_dict_table(
+                        input,
+                        &mut VerifiedSliceSink::new(output, 0),
+                        table,
+                        pristine,
+                        dict,
+                        dict.len(),
+                    )
+                } else {
+                    compress_into_sink_with_dict::<true>(
+                        input,
+                        &mut VerifiedSliceSink::new(output, 0),
+                        dict,
+                    )
+                }
+            }
+            CompressorTables::Plain {
+                table,
+                stream_offset,
+            } => {
+                let offset = prepare_plain_table(table, stream_offset, input.len());
+                if offset > 0 {
+                    compress_internal::<_, false, true, _>(
+                        input,
+                        0,
+                        &mut VerifiedSliceSink::new(output, 0),
+                        table,
+                        b"",
+                        offset,
+                    )
+                } else {
+                    compress_internal::<_, false, false, _>(
+                        input,
+                        0,
+                        &mut VerifiedSliceSink::new(output, 0),
+                        table,
+                        b"",
+                        0,
+                    )
+                }
+            }
         }
     }
 
@@ -531,31 +696,85 @@ impl Compressor {
     pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
         let max_compressed = get_maximum_output_size(input.len());
         let mut compressed = vec![0u8; max_compressed];
-        self.prepare_table();
-        let compressed_len = if !self.dict.is_empty() {
-            compress_internal::<_, true, true, _>(
-                input,
-                0,
-                &mut VerifiedSliceSink::new(&mut compressed, 0),
-                &mut self.table,
-                &self.dict,
-                self.dict.len(),
-            )
-        } else {
-            compress_internal::<_, false, false, _>(
-                input,
-                0,
-                &mut VerifiedSliceSink::new(&mut compressed, 0),
-                &mut self.table,
-                b"",
-                0,
-            )
+        let compressed_len = match &mut self.tables {
+            CompressorTables::Dict {
+                table,
+                pristine,
+                dict,
+            } => {
+                if dict.len() + input.len() < u16::MAX as usize {
+                    table.clear();
+                    compress_with_dict_table(
+                        input,
+                        &mut VerifiedSliceSink::new(&mut compressed, 0),
+                        table,
+                        pristine,
+                        dict,
+                        dict.len(),
+                    )
+                } else {
+                    compress_into_sink_with_dict::<true>(
+                        input,
+                        &mut VerifiedSliceSink::new(&mut compressed, 0),
+                        dict,
+                    )
+                }
+            }
+            CompressorTables::Plain {
+                table,
+                stream_offset,
+            } => {
+                let offset = prepare_plain_table(table, stream_offset, input.len());
+                if offset > 0 {
+                    compress_internal::<_, false, true, _>(
+                        input,
+                        0,
+                        &mut VerifiedSliceSink::new(&mut compressed, 0),
+                        table,
+                        b"",
+                        offset,
+                    )
+                } else {
+                    compress_internal::<_, false, false, _>(
+                        input,
+                        0,
+                        &mut VerifiedSliceSink::new(&mut compressed, 0),
+                        table,
+                        b"",
+                        0,
+                    )
+                }
+            }
         }
         .unwrap();
         compressed.truncate(compressed_len);
         compressed.shrink_to_fit();
         compressed
     }
+}
+
+#[inline]
+fn prepare_plain_table(
+    table: &mut HashTableU32,
+    stream_offset: &mut usize,
+    input_len: usize,
+) -> usize {
+    if input_len > Compressor::EPOCH_THRESHOLD {
+        table.clear();
+        *stream_offset = input_len + MAX_DISTANCE + 1;
+        return 0;
+    }
+    let offset = *stream_offset;
+    let next = offset
+        .checked_add(input_len)
+        .and_then(|v| v.checked_add(MAX_DISTANCE + 1));
+    if let Some(next) = next.filter(|&n| n <= u32::MAX as usize) {
+        *stream_offset = next;
+    } else {
+        table.clear();
+        *stream_offset = input_len + MAX_DISTANCE + 1;
+    }
+    offset
 }
 
 impl Default for Compressor {
@@ -804,6 +1023,28 @@ mod tests {
         let out_a = comp.compress(input);
         let out_b = comp.compress(input);
         assert_eq!(out_a, out_b);
+    }
+
+    #[test]
+    fn epoch_after_large_input_no_stale_entries() {
+        let mut comp = Compressor::new();
+        let large = vec![0x42u8; 262144];
+        let small = vec![0x41u8; 1024];
+        let mut out = vec![0u8; get_maximum_output_size(large.len())];
+        comp.compress_into(&large, &mut out).unwrap();
+        let mut out = vec![0u8; get_maximum_output_size(small.len())];
+        comp.compress_into(&small, &mut out).unwrap();
+    }
+
+    #[test]
+    fn epoch_mixed_sizes_no_panic() {
+        let mut comp = Compressor::new();
+        let sizes = [128, 65536, 256, 262144, 512, 1024, 64, 8192, 128];
+        for &size in &sizes {
+            let data = vec![(size & 0xFF) as u8; size];
+            let mut out = vec![0u8; get_maximum_output_size(size)];
+            comp.compress_into(&data, &mut out).unwrap();
+        }
     }
 
     #[test]

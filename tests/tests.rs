@@ -165,11 +165,11 @@ fn compare_compression() {
 fn test_minimum_compression_ratio_block() {
     let compressed = compress_block(COMPRESSION34K);
     let ratio = compressed.len() as f64 / COMPRESSION34K.len() as f64;
-    assert_lt!(ratio, 0.575);
+    assert_lt!(ratio, 0.59);
 
     let compressed = compress_block(COMPRESSION65);
     let ratio = compressed.len() as f64 / COMPRESSION65.len() as f64;
-    assert_lt!(ratio, 0.575);
+    assert_lt!(ratio, 0.59);
 
     let compressed = compress_block(COMPRESSION66JSON);
     let ratio = compressed.len() as f64 / COMPRESSION66JSON.len() as f64;
@@ -188,10 +188,10 @@ fn test_minimum_compression_ratio_frame() {
     };
 
     let ratio = get_ratio(COMPRESSION34K);
-    assert_lt!(ratio, 0.590);
+    assert_lt!(ratio, 0.645);
 
     let ratio = get_ratio(COMPRESSION65);
-    assert_lt!(ratio, 0.590);
+    assert_lt!(ratio, 0.645);
 
     let ratio = get_ratio(COMPRESSION66JSON);
     assert_lt!(ratio, 0.245);
