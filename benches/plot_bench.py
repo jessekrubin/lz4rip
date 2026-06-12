@@ -781,7 +781,7 @@ def generate_dict_charts(out_dir):
 
 import math
 
-SWEEP_CODEC_ORDER = ["lz4rip", "lz4rip (dict)", "C lz4", "C lz4 (dict)"]
+SWEEP_CODEC_ORDER = ["C lz4", "C lz4 (dict)", "lz4rip", "lz4rip (dict)"]
 
 SWEEP_STYLES = {
     "lz4rip":         {"color": "#f87171"},   # red
@@ -1082,8 +1082,22 @@ def sweep_chart(results):
     return "\n".join(L) + "\n"
 
 
+def _hw_extras_available():
+    if os.environ.get("LZ4RIP_HW_EXTRAS"):
+        return True
+    try:
+        return open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").read().strip() == "performance"
+    except OSError:
+        return False
+
+
 def generate_sweep_chart(out_dir):
     """Train dict, run sweep bench, generate chart."""
+    if not _hw_extras_available():
+        print("  error: LZ4RIP_HW_EXTRAS is not set and CPU governor is not 'performance'.", file=sys.stderr)
+        print("  sweep.svg subtitle would be missing. Set the env var and retry:", file=sys.stderr)
+        print("    LZ4RIP_HW_EXTRAS=\"performance governor,turbo off\" python3 -c ...", file=sys.stderr)
+        return
     with tempfile.TemporaryDirectory() as tmp:
         sample_dir = Path(tmp) / "samples"
         sample_dir.mkdir()
@@ -1123,6 +1137,198 @@ def generate_sweep_chart(out_dir):
         print(f"  wrote {out_path}")
 
 
+STRUCTURED_LABELS = {
+    "C lz4":             "lz4 (C, stream)",
+    "lz4rip":            "lz4rip (Compressor)",
+    "lz4_flex unsafe":   "lz4_flex (unsafe, oneshot)",
+    "lz4_flex":          "lz4_flex (safe, oneshot)",
+}
+
+
+def structured_chart(results, codec_order=None, colors=None, labels=None, title=None):
+    """Pipeline bar chart for structured JSON, same style as pipeline_chart:
+    stacked compress + transfer@1GB/s + decompress, seconds/GB, lower is better."""
+    if codec_order is None:
+        codec_order = CODEC_ORDER
+    if colors is None:
+        colors = COLORS
+    if labels is None:
+        labels = STRUCTURED_LABELS
+    if title is None:
+        title = "LZ4 Structured JSON: Compressor Reuse (256 B – 8 KB)"
+    codecs = [c for c in codec_order if any(r["codec"] == c for r in results)]
+    n_codecs = len(codecs)
+    hw_label = detect_hardware()
+    transfer_rate = 1e9
+
+    sizes = sorted(set(r["input_size"] for r in results))
+    n_sizes = len(sizes)
+
+    stacks = {}
+    y_max = 0
+    for r in results:
+        if r["codec"] not in codecs:
+            continue
+        per_gb = 1e9 / r["input_size"]
+        comp = r["compress_ns"] / 1e9 * per_gb
+        transfer = (r["compressed_size"] / r["input_size"]) * (1e9 / transfer_rate)
+        decomp = r["decompress_ns"] / 1e9 * per_gb
+        stacks[(r["input_size"], r["codec"])] = (comp, transfer, decomp)
+        y_max = max(y_max, comp + transfer + decomp)
+
+    y_max *= 1.1
+
+    svg_w = 850
+    x_left, x_right = 55, 830
+    plot_w = x_right - x_left
+    top_margin = 50 if hw_label else 40
+    y_top = top_margin
+    y_bot = top_margin + 340
+    plot_h = y_bot - y_top
+
+    svg_h = y_bot + 100
+
+    def y(v):
+        return y_bot - (v / y_max) * plot_h
+
+    mid_x = (x_left + x_right) / 2
+    L = []
+    L.append(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svg_w} {svg_h}"'
+        f' font-family="system-ui, -apple-system, sans-serif">'
+    )
+    L.append(f'  <rect width="{svg_w}" height="{svg_h}" fill="#0d1117"/>')
+
+    L.append(
+        f'  <text x="{mid_x}" y="22" text-anchor="middle" fill="#e6edf3"'
+        f' font-size="14" font-weight="700">'
+        f'{title}: Compress + Transfer @1 GB/s + Decompress (lower is better)'
+        f'</text>'
+    )
+    if hw_label:
+        L.append(
+            f'  <text x="{mid_x}" y="38" text-anchor="middle" fill="#7d8590"'
+            f' font-size="10">{hw_label}</text>'
+        )
+
+    # y gridlines
+    step = nice_step(y_max, 5)
+    v = step
+    while v <= y_max:
+        yy = y(v)
+        L.append(
+            f'  <line x1="{x_left}" y1="{yy:.1f}" x2="{x_right}" y2="{yy:.1f}"'
+            f' stroke="#21262d" stroke-width="1"/>'
+        )
+        L.append(
+            f'  <text x="{x_left - 8}" y="{yy:.1f}" text-anchor="end"'
+            f' dominant-baseline="middle" fill="#7d8590" font-size="10">{v:.0f}</text>'
+        )
+        v += step
+
+    # baseline
+    L.append(
+        f'  <line x1="{x_left}" y1="{y_bot}" x2="{x_right}" y2="{y_bot}"'
+        f' stroke="#30363d" stroke-width="1.5"/>'
+    )
+
+    # y-axis label
+    mid_y = (y_top + y_bot) / 2
+    L.append(
+        f'  <text x="22" y="{mid_y}" text-anchor="middle" fill="#e6edf3"'
+        f' font-size="11" font-weight="600"'
+        f' transform="rotate(-90,22,{mid_y})">seconds / GB</text>'
+    )
+
+    # bars: always lay out 4 slots so bar widths/positions match across charts
+    SLOT_MAP = {
+        "C lz4": 0, "lz4rip": 1, "lz4_flex unsafe": 2, "lz4_flex": 3,
+        "C lz4 (dict 2K)": 0, "lz4rip (dict 2K)": 1,
+    }
+    n_slots = 4
+    group_w = plot_w / n_sizes
+    bar_w = group_w * 0.75 / n_slots
+    gap = group_w * 0.25
+
+    for gi, size in enumerate(sizes):
+        group_x = x_left + gi * group_w + gap / 2
+
+        for codec in codecs:
+            if (size, codec) not in stacks:
+                continue
+            ci = SLOT_MAP.get(codec, 0)
+            comp, transfer, decomp = stacks[(size, codec)]
+            main_c, xfer_c = colors[codec]
+
+            bx = group_x + ci * bar_w
+            h_comp = (comp / y_max) * plot_h
+            L.append(
+                f'  <rect x="{bx:.1f}" y="{y(comp):.1f}"'
+                f' width="{bar_w:.1f}" height="{h_comp:.1f}"'
+                f' fill="{main_c}" rx="1"/>'
+            )
+            h_transfer = (transfer / y_max) * plot_h
+            L.append(
+                f'  <rect x="{bx:.1f}" y="{y(comp + transfer):.1f}"'
+                f' width="{bar_w:.1f}" height="{h_transfer:.1f}"'
+                f' fill="{xfer_c}" rx="1"/>'
+            )
+            h_decomp = (decomp / y_max) * plot_h
+            L.append(
+                f'  <rect x="{bx:.1f}" y="{y(comp + transfer + decomp):.1f}"'
+                f' width="{bar_w:.1f}" height="{h_decomp:.1f}"'
+                f' fill="{main_c}" rx="1"/>'
+            )
+
+        # size label
+        cx = group_x + (n_slots * bar_w) / 2
+        L.append(
+            f'  <text x="{cx:.1f}" y="{y_bot + 16}" text-anchor="middle"'
+            f' fill="#e6edf3" font-size="10" font-weight="600">{_fmt_size(size)}</text>'
+        )
+
+    # legend
+    leg_y = y_bot + 35
+    legend_items = [(k, labels.get(k, k)) for k in codecs]
+    row_h = 18
+    leg_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    leg_col_x = [mid_x - 200, mid_x + 10]
+    for i, (key, label) in enumerate(legend_items):
+        if i >= len(leg_positions):
+            break
+        col, row = leg_positions[i]
+        lx = leg_col_x[col]
+        ly = leg_y + row * row_h
+        main_c, _ = colors[key]
+        L.append(
+            f'  <rect x="{lx:.0f}" y="{ly - 5}" width="12" height="12"'
+            f' fill="{main_c}" rx="2"/>'
+        )
+        L.append(
+            f'  <text x="{lx + 18:.0f}" y="{ly + 5}" fill="#e6edf3"'
+            f' font-size="10" font-weight="500">{label}</text>'
+        )
+
+    # bar segment legend
+    n_legend_rows = 2
+    seg_y = leg_y + n_legend_rows * row_h + 8
+    seg_items = [
+        ("bright = compress + decompress", "#e6edf3"),
+        ("dim = transfer @1 GB/s", "#7d8590"),
+    ]
+    seg_total = 420
+    seg_start = mid_x - seg_total / 2
+    for i, (label, fill) in enumerate(seg_items):
+        sx = seg_start + i * 240
+        L.append(
+            f'  <text x="{sx:.0f}" y="{seg_y + 4}" fill="{fill}"'
+            f' font-size="9">{label}</text>'
+        )
+
+    L.append("</svg>")
+    return "\n".join(L) + "\n"
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <results.json|results.jsonl> [output_dir]", file=sys.stderr)
@@ -1140,6 +1346,44 @@ def main():
         svg = sweep_chart(results)
         if svg:
             out_path = out_dir / "sweep.svg"
+            out_path.write_text(svg)
+            print(f"  wrote {out_path}")
+        return
+
+    # structured mode: plot_bench.py --structured <results.json> [output_dir]
+    if sys.argv[1] == "--structured":
+        if len(sys.argv) < 3:
+            print(f"Usage: {sys.argv[0]} --structured <results.json> [output_dir]",
+                  file=sys.stderr)
+            sys.exit(1)
+        results = load_results(sys.argv[2])
+        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        svg = structured_chart(results)
+        if svg:
+            out_path = out_dir / "no_dict.svg"
+            out_path.write_text(svg)
+            print(f"  wrote {out_path}")
+        return
+
+    # structured dict mode: plot_bench.py --structured-dict <results.json> [output_dir]
+    if sys.argv[1] == "--structured-dict":
+        if len(sys.argv) < 3:
+            print(f"Usage: {sys.argv[0]} --structured-dict <results.json> [output_dir]",
+                  file=sys.stderr)
+            sys.exit(1)
+        results = load_results(sys.argv[2])
+        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        svg = structured_chart(
+            results,
+            codec_order=DICT_CODEC_ORDER,
+            colors=DICT_COLORS,
+            labels={"C lz4 (dict 2K)": "lz4 (C, dict)", "lz4rip (dict 2K)": "lz4rip (dict)"},
+            title="LZ4 Structured JSON + Dict (2 KB)",
+        )
+        if svg:
+            out_path = out_dir / "dict2k.svg"
             out_path.write_text(svg)
             print(f"  wrote {out_path}")
         return
