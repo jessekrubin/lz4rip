@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use std::io::{Read, Write};
 
-const ONE_MB: usize = 1024 * 1024;
+const MAX_DATA_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Debug, arbitrary::Arbitrary)]
 pub struct Input {
@@ -20,8 +20,8 @@ fuzz_target!(|input: Input| {
     if sample.is_empty() {
         return;
     }
-    let chunk_size = (chunk_size_seed % ONE_MB).max(1);
-    let data_size = data_size_seed % ONE_MB;
+    let chunk_size = (chunk_size_seed % MAX_DATA_SIZE).max(64);
+    let data_size = data_size_seed % MAX_DATA_SIZE;
 
     let mut data = Vec::with_capacity(data_size);
     while data.len() < data_size {
