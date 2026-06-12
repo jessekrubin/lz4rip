@@ -64,8 +64,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(feature = "nightly", feature(optimize_attribute))]
-#![cfg_attr(feature = "nightly", feature(core_intrinsics))]
-#![cfg_attr(feature = "nightly", allow(internal_features, unused_features))]
 
 #[cfg_attr(test, macro_use)]
 extern crate alloc;

@@ -25,7 +25,6 @@ const BD_BLOCK_SIZE_MASK_RSHIFT: u8 = 4;
 const BLOCK_UNCOMPRESSED_SIZE_BIT: u32 = 0x80000000;
 
 const LZ4F_MAGIC_NUMBER: u32 = 0x184D2204;
-pub(crate) const LZ4F_LEGACY_MAGIC_NUMBER: u32 = 0x184C2102;
 const LZ4F_SKIPPABLE_MAGIC_RANGE: std::ops::RangeInclusive<u32> = 0x184D2A50..=0x184D2A5F;
 
 pub(crate) const MAGIC_NUMBER_SIZE: usize = 4;
@@ -49,8 +48,6 @@ pub enum BlockSize {
     Max1MB = 6,
     /// 4MB block size.
     Max4MB = 7,
-    /// 8MB block size.
-    Max8MB = 8,
 }
 
 impl BlockSize {
@@ -73,7 +70,6 @@ impl BlockSize {
             BlockSize::Max256KB => 256 * 1024,
             BlockSize::Max1MB => 1024 * 1024,
             BlockSize::Max4MB => 4 * 1024 * 1024,
-            BlockSize::Max8MB => 8 * 1024 * 1024,
         }
     }
 }
@@ -143,8 +139,6 @@ pub struct FrameInfo {
     /// If set, includes a content checksum to verify that the full frame contents have been
     /// decoded correctly.
     pub content_checksum: bool,
-    /// Set when decoding a legacy frame. Not used for encoding.
-    pub(crate) legacy_frame: bool,
 }
 
 impl FrameInfo {
@@ -184,17 +178,9 @@ impl FrameInfo {
         self
     }
 
-    /// Whether this is a legacy frame (set during decoding).
-    pub fn is_legacy_frame(&self) -> bool {
-        self.legacy_frame
-    }
-
     pub(crate) fn read_size(input: &[u8]) -> Result<usize, Error> {
         let mut required = MIN_FRAME_INFO_SIZE;
         let magic_num = u32::from_le_bytes(input[0..4].try_into().unwrap());
-        if magic_num == LZ4F_LEGACY_MAGIC_NUMBER {
-            return Ok(MAGIC_NUMBER_SIZE);
-        }
 
         if input.len() < required {
             return Ok(required);
@@ -284,13 +270,6 @@ impl FrameInfo {
             input.read_exact(&mut buffer)?;
             u32::from_le_bytes(buffer)
         };
-        if magic_num == LZ4F_LEGACY_MAGIC_NUMBER {
-            return Ok(FrameInfo {
-                block_size: BlockSize::Max8MB,
-                legacy_frame: true,
-                ..FrameInfo::default()
-            });
-        }
         if LZ4F_SKIPPABLE_MAGIC_RANGE.contains(&magic_num) {
             let mut buffer = [0u8; 4];
             input.read_exact(&mut buffer)?;
@@ -369,7 +348,6 @@ impl FrameInfo {
             block_mode,
             block_checksums,
             content_checksum,
-            legacy_frame: false,
         })
     }
 }

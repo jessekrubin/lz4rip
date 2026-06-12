@@ -7,8 +7,7 @@ use std::{
 use twox_hash::XxHash32;
 
 use super::header::{
-    BlockInfo, BlockMode, FrameInfo, LZ4F_LEGACY_MAGIC_NUMBER, MAGIC_NUMBER_SIZE,
-    MAX_FRAME_INFO_SIZE, MIN_FRAME_INFO_SIZE,
+    BlockInfo, BlockMode, FrameInfo, MAGIC_NUMBER_SIZE, MAX_FRAME_INFO_SIZE, MIN_FRAME_INFO_SIZE,
 };
 use super::Error;
 use crate::{
@@ -134,14 +133,10 @@ impl<R: io::Read> FrameDecoder<R> {
             read => self.r.read_exact(&mut buffer[read..MAGIC_NUMBER_SIZE])?,
         }
 
-        if u32::from_le_bytes(buffer[0..MAGIC_NUMBER_SIZE].try_into().unwrap())
-            != LZ4F_LEGACY_MAGIC_NUMBER
-        {
-            self.r
-                .read_exact(&mut buffer[MAGIC_NUMBER_SIZE..MIN_FRAME_INFO_SIZE])?;
-        }
+        self.r
+            .read_exact(&mut buffer[MAGIC_NUMBER_SIZE..MIN_FRAME_INFO_SIZE])?;
         let required = FrameInfo::read_size(&buffer[..MIN_FRAME_INFO_SIZE])?;
-        if required != MIN_FRAME_INFO_SIZE && required != MAGIC_NUMBER_SIZE {
+        if required != MIN_FRAME_INFO_SIZE {
             self.r
                 .read_exact(&mut buffer[MIN_FRAME_INFO_SIZE..required])?;
         }
@@ -246,17 +241,8 @@ impl<R: io::Read> FrameDecoder<R> {
         // Read and decompress block
         let block_info = {
             let mut buffer = [0u8; 4];
-            match self.r.read_exact(&mut buffer) {
-                Ok(()) => BlockInfo::read(&buffer)?,
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    if frame_info.legacy_frame {
-                        self.current_frame_info = None;
-                        return Ok(0);
-                    }
-                    return Err(err);
-                }
-                Err(err) => return Err(err),
-            }
+            self.r.read_exact(&mut buffer)?;
+            BlockInfo::read(&buffer)?
         };
         match block_info {
             BlockInfo::Uncompressed(len) => {
@@ -395,29 +381,6 @@ impl<R: io::Read> io::Read for FrameDecoder<R> {
             }
             if self.read_more()? == 0 {
                 return Ok(0);
-            }
-        }
-    }
-
-    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> {
-        let mut written = 0;
-        loop {
-            match self.fill_buf() {
-                Ok([]) => return Ok(written),
-                Ok(b) => {
-                    let s = std::str::from_utf8(b).map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "stream did not contain valid UTF-8",
-                        )
-                    })?;
-                    buf.push_str(s);
-                    let len = s.len();
-                    self.consume(len);
-                    written += len;
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
             }
         }
     }

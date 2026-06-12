@@ -799,13 +799,6 @@ mod frame {
     }
 
     #[test]
-    fn legacy_frame() {
-        const LEGACY_LZ4: &[u8] = include_bytes!("../corpus/legacy_1k.lz4");
-        let uncompressed = lz4rip_frame_decompress(LEGACY_LZ4).unwrap();
-        assert_eq!(uncompressed, COMPRESSION1K);
-    }
-
-    #[test]
     fn truncated_standard_frame_is_error() {
         let frame_info = lz4rip::frame::FrameInfo::new();
         let compressed = lz4rip_frame_compress_with(frame_info, COMPRESSION34K).unwrap();
@@ -829,22 +822,6 @@ mod frame {
             enc.get_ref(),
             &first,
             "double try_finish must not append bytes"
-        );
-    }
-
-    #[test]
-    fn max8mb_rejected_for_standard_frame() {
-        let frame_info = lz4rip::frame::FrameInfo::new().block_size(BlockSize::Max8MB);
-        let err = lz4rip_frame_compress_with(frame_info, b"hello").unwrap_err();
-        let inner = err
-            .into_inner()
-            .and_then(|e| e.downcast::<lz4rip::frame::Error>().ok());
-        assert!(
-            matches!(
-                inner.as_deref(),
-                Some(lz4rip::frame::Error::UnsupportedBlocksize(8))
-            ),
-            "expected UnsupportedBlocksize(8), got {inner:?}"
         );
     }
 }
