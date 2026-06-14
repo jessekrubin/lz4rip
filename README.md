@@ -48,7 +48,7 @@ See [DESIGN.md](DESIGN.md) for how it all works.
 ## Block format
 
 ```rust
-use lz4rip::block::{compress, decompress_into, get_maximum_output_size};
+use lz4rip::block::{compress, decompress_into};
 
 let input = b"Hello people, what's up?";
 let compressed = compress(input);
