@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-17
+
+- Fixed nightly clippy: removed duplicated `#[forbid(unsafe_code)]` attributes in `lz4rip-encode` and `lz4rip-decode` (redundant with crate-level `#[forbid]` on `mod` declarations), added `Default` impl for `HashTableU32`
+
 ## [0.5.1] - 2026-06-16
 
 - Fixed version in README dependency example
