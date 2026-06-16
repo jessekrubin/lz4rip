@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-16
+
+- Fixed version in README dependency example
+
 ## [0.5.0] - 2026-06-16
 
 ### Changed
