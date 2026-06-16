@@ -94,6 +94,8 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
         let enter_fast = in_safe_region && output.pos() < safe_output_pos && literal_fits;
         #[cfg(not(target_arch = "aarch64"))]
         let enter_fast = literal_fits && in_safe_region && output.pos() < safe_output_pos;
+        #[cfg(feature = "nightly")]
+        let enter_fast = core::intrinsics::likely(enter_fast);
         if enter_fast {
             let literal_length = (token >> 4) as usize;
             let match_nib = (token & 0xF) as usize;
