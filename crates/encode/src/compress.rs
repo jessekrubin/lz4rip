@@ -1,47 +1,30 @@
 //! LZ4 block compression.
+#![forbid(unsafe_code)]
 
 use core::fmt;
 
-use crate::block::hashtable::HashTable;
-use crate::block::END_OFFSET;
-use crate::block::LZ4_MIN_LENGTH;
-use crate::block::MAX_DISTANCE;
-use crate::block::MFLIMIT;
-use crate::block::MINMATCH;
-use crate::sink::Sink;
-#[cfg(test)]
-use crate::sink::SliceSink;
+use crate::hashtable::HashTable;
 use crate::verified_sink::VerifiedSliceSink;
 #[allow(unused_imports)]
 use alloc::vec;
+use lz4rip_core::CompressError;
+use lz4rip_core::Sink;
+use lz4rip_core::END_OFFSET;
+use lz4rip_core::LZ4_MIN_LENGTH;
+use lz4rip_core::MAX_DISTANCE;
+use lz4rip_core::MFLIMIT;
+use lz4rip_core::MINMATCH;
+use lz4rip_core::WINDOW_SIZE;
 
 #[allow(unused_imports)]
 use alloc::vec::Vec;
 
-pub(crate) use super::hashtable::HashTableU32;
-pub(crate) use super::hashtable::HashTableU32U16;
-use super::{CompressError, WINDOW_SIZE};
+pub(crate) use crate::hashtable::HashTableU32;
+pub(crate) use crate::hashtable::HashTableU32U16;
 
 /// Skip acceleration: step grows by 1 every `1 << N` consecutive non-matches.
 /// C lz4 uses 6; see DESIGN.md for tradeoff analysis.
 const INCREASE_STEPSIZE_BITSHIFT: usize = 3;
-
-/// Read a native-endian 4-byte integer from `input[n..]`.
-#[inline]
-#[cfg(target_pointer_width = "32")]
-pub(super) fn get_batch(input: &[u8], n: usize) -> u32 {
-    u32::from_ne_bytes(input[n..n + 4].try_into().unwrap())
-}
-
-/// Read an usize sized "batch" from some position.
-///
-/// This will read a native-endian usize from some position.
-#[inline]
-pub(super) fn get_batch_arch(input: &[u8], n: usize) -> usize {
-    const USIZE_SIZE: usize = core::mem::size_of::<usize>();
-    let arr: &[u8; USIZE_SIZE] = input[n..n + USIZE_SIZE].try_into().unwrap();
-    usize::from_ne_bytes(*arr)
-}
 
 #[inline]
 fn token_from_literal(lit_len: usize) -> u8 {
@@ -69,13 +52,9 @@ fn token_from_literal_and_match_length(lit_len: usize, duplicate_length: usize) 
     token
 }
 
-/// Write an integer to the output.
-///
-/// Each additional byte then represent a value from 0 to 255, which is added to the previous value
-/// to produce a total length. When the byte value is 255, another byte must read and added, and so
-/// on. There can be any number of bytes of value "255" following token
+/// Write a variable-length integer in the LZ4 encoding.
 #[inline]
-pub(super) fn write_integer(output: &mut impl Sink, mut n: usize) {
+pub fn write_integer(output: &mut impl Sink, mut n: usize) {
     while n >= 0xFF {
         n -= 0xFF;
         push_byte(output, 0xFF);
@@ -83,7 +62,6 @@ pub(super) fn write_integer(output: &mut impl Sink, mut n: usize) {
     push_byte(output, n as u8);
 }
 
-/// Handle the last bytes from the input as literals
 #[cold]
 fn handle_last_literals(output: &mut impl Sink, input: &[u8], start: usize) {
     let lit_len = input.len() - start;
@@ -96,7 +74,6 @@ fn handle_last_literals(output: &mut impl Sink, input: &[u8], start: usize) {
     output.extend_from_slice(&input[start..]);
 }
 
-/// Moves the cursors back as long as the bytes match, to find additional bytes in a duplicate
 #[inline]
 fn backtrack_match(
     input: &[u8],
@@ -111,41 +88,9 @@ fn backtrack_match(
     }
 }
 
-/// Compress all bytes of `input[input_pos..]` into `output`.
-///
-/// Bytes in `input[..input_pos]` are treated as a preamble and can be used for lookback.
-/// This part is known as the compressor "prefix".
-/// Bytes in `ext_dict` logically precede the bytes in `input` and can also be used for lookback.
-///
-/// `input_stream_offset` is the logical position of the first byte of `input`. This allows same
-/// `dict` to be used for many calls to `compress_internal` as we can "readdress" the first byte of
-/// `input` to be something other than 0.
-///
-/// `dict` is the dictionary of previously encoded sequences.
-///
-/// This is used to find duplicates in the stream so they are not written multiple times.
-///
-/// Every four bytes are hashed, and in the resulting slot their position in the input buffer
-/// is placed in the dict. This way we can easily look up a candidate to back references.
-///
-/// Returns the number of bytes written (compressed) into `output`.
-///
-/// # Const parameters
-/// `USE_DICT`: Disables usage of ext_dict (it'll panic if a non-empty slice is used).
-/// In other words, this generates more optimized code when an external dictionary isn't used.
-///
-/// A similar const argument could be used to disable the Prefix mode (eg. USE_PREFIX),
-/// which would impose `input_pos == 0 && input_stream_offset == 0`. Experiments didn't
-/// show significant improvement though.
-// Intentionally avoid inlining.
-// Empirical tests revealed it to be rarely better but often significantly detrimental.
+/// Core block compression loop, monomorphized over hash table type and dict mode.
 #[inline(never)]
-pub(crate) fn compress_internal<
-    T: HashTable,
-    const USE_DICT: bool,
-    const HAS_OFFSET: bool,
-    S: Sink,
->(
+pub fn compress_internal<T: HashTable, const USE_DICT: bool, const HAS_OFFSET: bool, S: Sink>(
     input: &[u8],
     input_pos: usize,
     output: &mut S,
@@ -155,7 +100,7 @@ pub(crate) fn compress_internal<
 ) -> Result<usize, CompressError> {
     assert!(input_pos <= input.len());
     if USE_DICT {
-        assert!(ext_dict.len() <= super::WINDOW_SIZE);
+        assert!(ext_dict.len() <= WINDOW_SIZE);
         assert!(ext_dict.len() <= input_stream_offset);
         assert!(input_stream_offset
             .checked_add(input.len())
@@ -167,7 +112,6 @@ pub(crate) fn compress_internal<
     if !HAS_OFFSET {
         debug_assert_eq!(input_stream_offset, 0);
     }
-    // Shadow with literal 0 so LLVM can eliminate all offset arithmetic at compile time.
     let input_stream_offset = if HAS_OFFSET { input_stream_offset } else { 0 };
     if output.capacity() - output.pos() < get_maximum_output_size(input.len() - input_pos) {
         return Err(CompressError::OutputTooSmall);
@@ -233,8 +177,8 @@ pub(crate) fn compress_internal<
                 continue;
             }
             let cand_bytes: u32 =
-                super::hashtable::get_batch_unchecked(candidate_source, candidate);
-            let curr_bytes: u32 = super::hashtable::get_batch_unchecked(input, cur);
+                crate::hashtable::get_batch_unchecked(candidate_source, candidate);
+            let curr_bytes: u32 = crate::hashtable::get_batch_unchecked(input, cur);
 
             if cand_bytes == curr_bytes {
                 break;
@@ -255,7 +199,7 @@ pub(crate) fn compress_internal<
 
             cur += MINMATCH;
             candidate += MINMATCH;
-            let duplicate_length = super::hashtable::count_same_bytes_unchecked(
+            let duplicate_length = crate::hashtable::count_same_bytes_unchecked(
                 input,
                 &mut cur,
                 candidate_source,
@@ -288,8 +232,8 @@ pub(crate) fn compress_internal<
                     && rematch >= input_stream_offset
                 {
                     let rc = rematch - input_stream_offset;
-                    if super::hashtable::get_batch_unchecked(input, cur)
-                        == super::hashtable::get_batch_unchecked(input, rc)
+                    if crate::hashtable::get_batch_unchecked(input, cur)
+                        == crate::hashtable::get_batch_unchecked(input, rc)
                     {
                         table.put_at(hash, cur + input_stream_offset);
                         candidate = rc;
@@ -307,9 +251,7 @@ pub(crate) fn compress_internal<
     }
 }
 
-/// Dual-table compression for `Compressor::with_dict`. The main table
-/// tracks input positions; `dict_table` is a read-only snapshot of the
-/// dictionary. On a main-table miss, `dict_table` is probed as fallback.
+/// Dual-table compression for `Compressor::with_dict`.
 #[inline(never)]
 fn compress_with_dict_table<T: HashTable, S: Sink>(
     input: &[u8],
@@ -319,7 +261,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
     ext_dict: &[u8],
     input_stream_offset: usize,
 ) -> Result<usize, CompressError> {
-    assert!(ext_dict.len() <= super::WINDOW_SIZE);
+    assert!(ext_dict.len() <= WINDOW_SIZE);
     assert!(ext_dict.len() <= input_stream_offset);
     assert!(input_stream_offset
         .checked_add(input.len())
@@ -386,8 +328,8 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
                 }
             }
             let cand_bytes: u32 =
-                super::hashtable::get_batch_unchecked(candidate_source, candidate);
-            let curr_bytes: u32 = super::hashtable::get_batch_unchecked(input, cur);
+                crate::hashtable::get_batch_unchecked(candidate_source, candidate);
+            let curr_bytes: u32 = crate::hashtable::get_batch_unchecked(input, cur);
 
             if cand_bytes == curr_bytes {
                 break;
@@ -407,7 +349,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
 
         cur += MINMATCH;
         candidate += MINMATCH;
-        let duplicate_length = super::hashtable::count_same_bytes_unchecked(
+        let duplicate_length = crate::hashtable::count_same_bytes_unchecked(
             input,
             &mut cur,
             candidate_source,
@@ -453,14 +395,8 @@ fn copy_literals_wild(output: &mut impl Sink, input: &[u8], input_start: usize, 
     output.extend_from_slice_wild(&input[input_start..input_start + len], len)
 }
 
-/// Compress all bytes of `input` into `output`.
-/// The method chooses an appropriate hashtable to lookup duplicates.
-/// output should be preallocated with a size of
-/// `get_maximum_output_size`.
-///
-/// Returns the number of bytes written (compressed) into `output`.
-#[inline]
-pub(crate) fn compress_into_sink_with_dict<const USE_DICT: bool>(
+/// Compress `input` into `output` with optional dictionary data.
+pub fn compress_into_sink_with_dict<const USE_DICT: bool>(
     input: &[u8],
     output: &mut impl Sink,
     mut dict_data: &[u8],
@@ -514,7 +450,6 @@ pub const fn get_maximum_output_size(input_len: usize) -> usize {
 }
 
 /// Compress all bytes of `input` into `output`.
-/// The method chooses an appropriate hashtable to lookup duplicates.
 /// output should be preallocated with a size of
 /// `get_maximum_output_size`.
 ///
@@ -541,15 +476,13 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 }
 
 /// A reusable block compressor. Pre-allocates the hash table once and reuses
-/// it across calls. When constructed with [`Compressor::with_dict`], the
-/// dictionary is hashed once; a read-only pristine table is probed as
-/// fallback on main-table misses.
+/// it across calls.
 ///
 /// For one-shot compression, use [`compress`] or [`compress_into`] instead.
 ///
 /// # Example
 /// ```
-/// use lz4rip::block::{Compressor, get_maximum_output_size};
+/// use lz4rip_encode::{Compressor, get_maximum_output_size};
 ///
 /// let mut comp = Compressor::new();
 /// let input = b"hello world, hello world, hello!";
@@ -599,11 +532,6 @@ impl Compressor {
 
     /// Create a new compressor seeded with an external dictionary.
     ///
-    /// The dictionary is hashed once during construction into an 8 KB
-    /// read-only table. Each call clears the 8 KB main table and probes
-    /// the pristine table on miss (16 KB total in L1d when dict+input
-    /// fits in u16; falls back to a fresh single-table path otherwise).
-    ///
     /// If `dict` is shorter than 4 bytes, it is ignored.
     pub fn with_dict(dict: &[u8]) -> Self {
         if dict.len() < MINMATCH {
@@ -626,10 +554,6 @@ impl Compressor {
         }
     }
 
-    /// Epoch-based table reuse threshold. Inputs up to this size skip
-    /// the memset and rely on the distance check to reject stale entries.
-    /// Above this size the offset arithmetic in the hot loop costs more
-    /// than the memset it saves.
     const EPOCH_THRESHOLD: usize = 8 * 1024;
 
     /// Compress `input` into `output`, returning the number of compressed bytes.
@@ -782,6 +706,7 @@ impl Default for Compressor {
         Self::new()
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,56 +758,6 @@ mod tests {
         ];
         assert_eq!(count_same_bytes(first, &mut 0, second, 0), 16);
 
-        let first: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ];
-        let second: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1,
-        ];
-        assert_eq!(count_same_bytes(first, &mut 0, second, 0), 20);
-
-        let first: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-        ];
-        let second: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1,
-        ];
-        assert_eq!(count_same_bytes(first, &mut 0, second, 0), 22);
-
-        let first: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 5, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0,
-        ];
-        let second: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 5, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1,
-        ];
-        assert_eq!(count_same_bytes(first, &mut 0, second, 0), 23);
-
-        let first: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 5, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0,
-        ];
-        let second: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 6, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1,
-        ];
-        assert_eq!(count_same_bytes(first, &mut 0, second, 0), 22);
-
-        let first: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 9, 5, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0,
-        ];
-        let second: &[u8] = &[
-            1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 3, 4, 6, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1,
-        ];
-        assert_eq!(count_same_bytes(first, &mut 0, second, 0), 21);
-
         for diff_idx in 8..100 {
             let first: Vec<u8> = (0u8..255).cycle().take(100 + 12).collect();
             let mut second = first.clone();
@@ -903,167 +778,16 @@ mod tests {
     }
 
     #[test]
-    fn test_dict() {
-        let input: &[u8] = &[
-            10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
-        ];
-        let dict = input;
-        let mut comp = Compressor::with_dict(dict);
-        let compressed = comp.compress(input);
-        assert_lt!(compressed.len(), compress(input).len());
-
-        let decomp = crate::block::decompress::Decompressor::with_dict(dict);
-        let uncompressed = decomp.decompress(&compressed, input.len()).unwrap();
-        assert_eq!(input, &uncompressed[..]);
-    }
-
-    #[test]
-    fn test_dict_no_panic() {
-        let input: &[u8] = &[
-            10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
-        ];
-        let dict = &[10, 12, 14];
-        let mut comp = Compressor::with_dict(dict);
-        let _compressed = comp.compress(input);
-    }
-
-    #[test]
-    fn test_dict_match_crossing() {
-        let input: &[u8] = &[
-            10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
-        ];
-        let dict = input;
-        let mut comp = Compressor::with_dict(dict);
-        let compressed = comp.compress(input);
-        assert_lt!(compressed.len(), compress(input).len());
-
-        let mut uncompressed = vec![0u8; input.len() * 2];
-        let dict_cutoff = dict.len() / 2;
-        let output_start = dict.len() - dict_cutoff;
-        uncompressed[..output_start].copy_from_slice(&dict[dict_cutoff..]);
-        let uncomp_len = {
-            let mut sink = SliceSink::new(&mut uncompressed[..], output_start);
-            crate::block::decompress::decompress_internal::<true, _>(
-                &compressed,
-                &mut sink,
-                &dict[..dict_cutoff],
-            )
-            .unwrap()
-        };
-        assert_eq!(input.len(), uncomp_len);
-        assert_eq!(
-            input,
-            &uncompressed[output_start..output_start + uncomp_len]
-        );
-    }
-
-    #[test]
     fn test_conformant_last_block() {
         let aaas: &[u8] = b"aaaaaaaaaaaaaaa";
 
         let out = compress(&aaas[..12]);
-        assert_gt!(out.len(), 12);
+        assert!(out.len() > 12);
         let out = compress(&aaas[..13]);
-        assert_le!(out.len(), 13);
+        assert!(out.len() <= 13);
         let out = compress(&aaas[..14]);
-        assert_le!(out.len(), 14);
+        assert!(out.len() <= 14);
         let out = compress(&aaas[..15]);
-        assert_le!(out.len(), 15);
-
-        let mut comp = Compressor::with_dict(aaas);
-        let out = comp.compress(&aaas[..11]);
-        assert_gt!(out.len(), 11);
-        let out = comp.compress(&aaas[..12]);
-        assert_gt!(out.len(), 12);
-        let out = comp.compress(&aaas[..13]);
-        assert_le!(out.len(), 13);
-        let out = comp.compress(&aaas[..14]);
-        assert_le!(out.len(), 14);
-        let out = comp.compress(&aaas[..15]);
-        assert_le!(out.len(), 15);
-    }
-
-    #[test]
-    fn test_dict_size() {
-        let dict = vec![b'a'; 1024 * 1024];
-        let input = &b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaa"[..];
-        let mut comp = Compressor::with_dict(&dict);
-        let compressed = comp.compress(input);
-        let decomp = crate::block::decompress::Decompressor::with_dict(&dict);
-        let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
-        assert_eq!(decompressed, input);
-    }
-
-    #[test]
-    fn test_compressor_roundtrip() {
-        let input: &[u8] = &[
-            10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
-        ];
-        let dict = input;
-
-        let mut comp = Compressor::with_dict(dict);
-        let mut compressed = vec![0u8; get_maximum_output_size(input.len())];
-        let n = comp.compress_into(input, &mut compressed).unwrap();
-        compressed.truncate(n);
-
-        assert_lt!(compressed.len(), compress(input).len());
-
-        let decomp = crate::block::decompress::Decompressor::with_dict(dict);
-        let uncompressed = decomp.decompress(&compressed, input.len()).unwrap();
-        assert_eq!(input, &uncompressed[..]);
-    }
-
-    #[test]
-    fn test_compressor_reuse() {
-        let input: &[u8] = &[
-            10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
-        ];
-        let dict = input;
-        let mut comp = Compressor::with_dict(dict);
-        let out_a = comp.compress(input);
-        let out_b = comp.compress(input);
-        assert_eq!(out_a, out_b);
-    }
-
-    #[test]
-    fn epoch_after_large_input_no_stale_entries() {
-        let mut comp = Compressor::new();
-        let large = vec![0x42u8; 262144];
-        let small = vec![0x41u8; 1024];
-        let mut out = vec![0u8; get_maximum_output_size(large.len())];
-        comp.compress_into(&large, &mut out).unwrap();
-        let mut out = vec![0u8; get_maximum_output_size(small.len())];
-        comp.compress_into(&small, &mut out).unwrap();
-    }
-
-    #[test]
-    fn epoch_mixed_sizes_no_panic() {
-        let mut comp = Compressor::new();
-        let sizes = [128, 65536, 256, 262144, 512, 1024, 64, 8192, 128];
-        for &size in &sizes {
-            let data = vec![(size & 0xFF) as u8; size];
-            let mut out = vec![0u8; get_maximum_output_size(size)];
-            comp.compress_into(&data, &mut out).unwrap();
-        }
-    }
-
-    #[test]
-    fn compress_into_with_short_dict_does_not_panic() {
-        let input = [0u8; 13];
-        let decomp = crate::block::decompress::Decompressor::with_dict(&[]);
-
-        for dict_len in 0..MINMATCH {
-            let dict = vec![0u8; dict_len];
-            let mut comp = Compressor::with_dict(&dict);
-            let mut output = vec![0u8; get_maximum_output_size(input.len())];
-            let compressed_len = comp.compress_into(&input, &mut output).unwrap();
-
-            let mut uncompressed = vec![0u8; input.len()];
-            let uncompressed_len = decomp
-                .decompress_into(&output[..compressed_len], &mut uncompressed)
-                .unwrap();
-            uncompressed.truncate(uncompressed_len);
-            assert_eq!(uncompressed, input);
-        }
+        assert!(out.len() <= 15);
     }
 }

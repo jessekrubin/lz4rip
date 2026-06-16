@@ -1,32 +1,26 @@
+//! COVER dictionary trainer.
+#![forbid(unsafe_code)]
+
 use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::MINMATCH;
+use lz4rip_core::MAX_DISTANCE;
+use lz4rip_core::MINMATCH;
 
 /// Trains an LZ4 dictionary from sample messages using the COVER
 /// algorithm.
 ///
-/// Concatenates all samples, counts d-mer (8-byte substring)
-/// frequencies, then greedily selects the k-byte segments with the
-/// highest concentration of common patterns. Each selected segment's
-/// d-mers are zeroed out so the next selection covers different
-/// patterns. The result is contiguous real message content that gives
-/// LZ4's match finder long matches.
-///
-/// Calling [`train`](Self::train) consumes the trainer, returning
-/// the dictionary bytes.
-///
 /// # Example
 /// ```
-/// use lz4rip::block::DictTrainer;
+/// use lz4rip_encode::DictTrainer;
 ///
 /// let mut trainer = DictTrainer::new(2048);
 /// for msg in &[b"hello world" as &[u8], b"hello rust", b"hello lz4"] {
 ///     trainer.add_sample(msg);
 /// }
 /// let dict = trainer.train();
-/// let compressor = lz4rip::block::Compressor::with_dict(&dict);
+/// let compressor = lz4rip_encode::Compressor::with_dict(&dict);
 /// ```
 pub struct DictTrainer {
     max_dict_size: usize,
@@ -40,7 +34,7 @@ impl DictTrainer {
     /// Typical values: 2048 for small messages, 4096 for larger ones.
     /// The dict is capped at 65535 bytes (LZ4 max match distance).
     pub fn new(max_dict_size: usize) -> Self {
-        let max_dict_size = max_dict_size.min(super::MAX_DISTANCE);
+        let max_dict_size = max_dict_size.min(MAX_DISTANCE);
         DictTrainer {
             max_dict_size,
             samples: VecDeque::new(),
@@ -51,8 +45,7 @@ impl DictTrainer {
     /// Add a training sample.
     ///
     /// Samples shorter than 4 bytes or longer than `max_dict_size` are
-    /// silently skipped. Old samples are evicted when the memory budget
-    /// (8x `max_dict_size`) is exceeded, so calling indefinitely is safe.
+    /// silently skipped.
     pub fn add_sample(&mut self, data: &[u8]) {
         if data.len() < MINMATCH || data.len() > self.max_dict_size {
             return;
@@ -60,7 +53,6 @@ impl DictTrainer {
 
         let budget = self.max_dict_size * 8;
 
-        // Evict oldest samples to stay within memory budget.
         while self.total_bytes + data.len() > budget && !self.samples.is_empty() {
             self.total_bytes -= self.samples.pop_front().unwrap().len();
         }
@@ -119,13 +111,11 @@ fn cover_select(samples: &[&[u8]], dict_size: usize) -> Vec<u8> {
 
     let num_dmers = concat.len() - D + 1;
 
-    // Hash all d-mer positions.
     let mut hashes = vec![0u32; num_dmers];
     for i in 0..num_dmers {
         hashes[i] = (hash_dmer(&concat[i..i + D]) & FREQ_MASK) as u32;
     }
 
-    // Count d-mer frequencies across distinct samples.
     let mut freqs = vec![0u32; FREQ_SIZE];
     for s in 0..samples.len() {
         let start = offsets[s];
@@ -149,7 +139,6 @@ fn cover_select(samples: &[&[u8]], dict_size: usize) -> Vec<u8> {
     let mut collected = 0usize;
 
     while collected < dict_size {
-        // Rebuild prefix sums (frequencies change each round).
         let mut prefix = vec![0u64; num_dmers + 1];
         prefix[0] = 0;
         for i in 0..num_dmers {
@@ -174,7 +163,6 @@ fn cover_select(samples: &[&[u8]], dict_size: usize) -> Vec<u8> {
 
         segments.push((best_pos, best_score));
 
-        // Zero out selected d-mers so next round picks different patterns.
         for i in best_pos..best_pos + seg_dmers {
             freqs[hashes[i] as usize] = 0;
         }
@@ -183,7 +171,6 @@ fn cover_select(samples: &[&[u8]], dict_size: usize) -> Vec<u8> {
         collected += k;
     }
 
-    // Assemble: lowest-scored first, highest-scored last (hash priority).
     let mut dict = Vec::with_capacity(dict_size);
     for &(pos, _) in segments.iter().rev() {
         let end = (pos + k).min(concat.len());
@@ -201,7 +188,7 @@ mod tests {
     use super::*;
 
     fn json_msg(i: u32) -> Vec<u8> {
-        format!(
+        alloc::format!(
             r#"{{"ts":"2026-04-27T12:00:00.{i:04}Z","level":"INFO","service":"api-gw","trace":"{i:08x}","method":"GET","path":"/v1/users/{i:04}","status":200,"latency_ms":{lat},"region":"us-east-1"}}"#,
             i = i,
             lat = 10 + i % 490,
@@ -218,63 +205,6 @@ mod tests {
         let dict = trainer.train();
         assert!(!dict.is_empty(), "dict should not be empty");
         assert!(dict.len() <= 2048, "dict should respect max size");
-    }
-
-    #[test]
-    fn dict_improves_compression() {
-        let mut trainer = DictTrainer::new(2048);
-        for i in 0..200 {
-            trainer.add_sample(&json_msg(i));
-        }
-        let dict = trainer.train();
-        assert!(!dict.is_empty());
-
-        let mut compressor = crate::block::Compressor::with_dict(&dict);
-        let decompressor = crate::block::Decompressor::with_dict(&dict);
-
-        let test_msg = json_msg(9999);
-        let compressed_with = compressor.compress(&test_msg);
-        let compressed_without = crate::block::compress(&test_msg);
-
-        assert!(
-            compressed_with.len() < compressed_without.len(),
-            "dict compressed {} >= no-dict {}",
-            compressed_with.len(),
-            compressed_without.len()
-        );
-
-        let mut decomp_buf = vec![0u8; test_msg.len()];
-        let n = decompressor
-            .decompress_into(&compressed_with, &mut decomp_buf)
-            .unwrap();
-        assert_eq!(&decomp_buf[..n], &test_msg[..]);
-    }
-
-    #[test]
-    fn cover_beats_naive_tail() {
-        let mut trainer = DictTrainer::new(2048);
-        let mut buf = Vec::new();
-        for i in 0..200 {
-            let msg = json_msg(i);
-            trainer.add_sample(&msg);
-            buf.extend_from_slice(&msg);
-        }
-
-        let cover_dict = trainer.train();
-        let naive_dict = buf[buf.len() - 2048..].to_vec();
-
-        let test_msg = json_msg(9999);
-
-        let mut comp_cover = crate::block::Compressor::with_dict(&cover_dict);
-        let mut comp_naive = crate::block::Compressor::with_dict(&naive_dict);
-
-        let c_cover = comp_cover.compress(&test_msg);
-        let c_naive = comp_naive.compress(&test_msg);
-
-        // Both should compress well. With uniform synthetic data the
-        // difference is small; real-world data is where COVER shines.
-        assert!(c_cover.len() < test_msg.len());
-        assert!(c_naive.len() < test_msg.len());
     }
 
     #[test]

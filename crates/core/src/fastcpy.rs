@@ -2,6 +2,7 @@
 //! Uses a double-copy trick: copy the first N and last N bytes,
 //! which overlap in the middle. Falls back to `memcpy` for larger sizes.
 
+/// Copy `src` into `dst` using fixed-size double-copy tricks for small sizes.
 #[inline]
 pub fn slice_copy(src: &[u8], dst: &mut [u8]) {
     #[inline(never)]
@@ -72,8 +73,11 @@ fn double_copy_trick<const SIZE: usize>(src: &[u8], dst: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::slice_copy;
+    extern crate alloc;
+    use alloc::vec;
     use alloc::vec::Vec;
+
+    use super::slice_copy;
     use proptest::prelude::*;
     proptest! {
         #[test]

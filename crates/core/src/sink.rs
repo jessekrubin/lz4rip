@@ -1,49 +1,28 @@
-#[allow(unused_imports)]
-use alloc::vec::Vec;
-
 use crate::fastcpy::slice_copy;
 
-/// Returns a Sink backed by `vec[offset..]` for compression output.
-#[inline]
-#[cfg(feature = "frame")]
-pub(crate) fn vec_sink_for_compression(
-    vec: &mut Vec<u8>,
-    offset: usize,
-    pos: usize,
-    required_capacity: usize,
-) -> crate::verified_sink::VerifiedSliceSink<'_> {
-    vec.resize(offset + required_capacity, 0);
-    crate::verified_sink::VerifiedSliceSink::new(&mut vec[offset..], pos)
-}
-
-/// Returns a Sink backed by `vec[offset..]` for decompression output.
-#[cfg(feature = "frame")]
-#[inline]
-pub(crate) fn vec_sink_for_decompression(
-    vec: &mut Vec<u8>,
-    offset: usize,
-    pos: usize,
-    required_capacity: usize,
-) -> SliceSink<'_> {
-    vec.resize(offset + required_capacity, 0);
-    SliceSink::new(&mut vec[offset..], pos)
-}
-
-pub(crate) trait Sink {
+/// Trait for output buffers used during compression and decompression.
+pub trait Sink {
     /// Pushes a byte to the end of the Sink.
     fn push(&mut self, byte: u8);
 
+    /// Current write position.
     fn pos(&self) -> usize;
 
+    /// Total capacity of the underlying buffer.
     fn capacity(&self) -> usize;
 
     /// Extends the Sink with `data`.
     fn extend_from_slice(&mut self, data: &[u8]);
 
+    /// Extends the Sink with `data`, but only advances `pos` by `copy_len`.
+    /// Allows overcopying into the trailing slack for wildcopy.
     fn extend_from_slice_wild(&mut self, data: &[u8], copy_len: usize);
 
+    /// Copies `num_bytes` from `start` within the output buffer, handling
+    /// overlapping (periodic) patterns byte by byte.
     fn extend_from_within_overlapping(&mut self, start: usize, num_bytes: usize);
 
+    /// Returns the underlying buffer and a mutable reference to the position.
     fn output_mut_with_pos(&mut self) -> (&mut [u8], &mut usize);
 }
 
@@ -54,7 +33,7 @@ pub(crate) trait Sink {
 ///
 /// # Invariants
 ///   - Bytes `[..pos()]` are always initialized.
-pub(crate) struct SliceSink<'a> {
+pub struct SliceSink<'a> {
     output: &'a mut [u8],
     pos: usize,
 }
@@ -65,7 +44,7 @@ impl<'a> SliceSink<'a> {
     /// # Panics
     /// Panics if `pos` is out of bounds.
     #[inline]
-    pub(crate) fn new(output: &'a mut [u8], pos: usize) -> Self {
+    pub fn new(output: &'a mut [u8], pos: usize) -> Self {
         let _ = &mut output[..pos]; // bounds check pos
         SliceSink { output, pos }
     }

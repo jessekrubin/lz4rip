@@ -35,9 +35,9 @@ pub use header::{BlockMode, BlockSize, FrameInfo};
 /// Errors that can occur when de/compressing lz4.
 pub enum Error {
     /// Compression error.
-    CompressionError(crate::block::CompressError),
+    CompressionError(lz4rip_core::CompressError),
     /// Decompression error.
-    DecompressionError(crate::block::DecompressError),
+    DecompressionError(lz4rip_core::DecompressError),
     /// An io::Error was encountered.
     IoError(io::Error),
     /// Unsupported block size.

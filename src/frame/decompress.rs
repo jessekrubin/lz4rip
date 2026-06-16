@@ -10,10 +10,18 @@ use super::header::{
     BlockInfo, BlockMode, FrameInfo, MAGIC_NUMBER_SIZE, MAX_FRAME_INFO_SIZE, MIN_FRAME_INFO_SIZE,
 };
 use super::Error;
-use crate::{
-    block::WINDOW_SIZE,
-    sink::{vec_sink_for_decompression, SliceSink},
-};
+use lz4rip_core::{SliceSink, WINDOW_SIZE};
+use lz4rip_decode::decompress_internal;
+
+fn vec_sink_for_decompression(
+    vec: &mut Vec<u8>,
+    offset: usize,
+    pos: usize,
+    required_capacity: usize,
+) -> SliceSink<'_> {
+    vec.resize(offset + required_capacity, 0);
+    SliceSink::new(&mut vec[offset..], pos)
+}
 
 /// A reader for decompressing the LZ4 frame format
 ///
@@ -44,33 +52,17 @@ use crate::{
 /// }
 /// ```
 pub struct FrameDecoder<R: io::Read> {
-    /// The underlying reader.
     r: R,
-    /// The FrameInfo of the frame currently being decoded.
-    /// It starts as `None` and is filled with the FrameInfo is read from the input.
-    /// It's reset to `None` once the frame EndMarker is read from the input.
     current_frame_info: Option<FrameInfo>,
-    /// Xxhash32 used when content checksum is enabled.
     content_hasher: XxHash32,
-    /// Total length of decompressed output for the current frame.
     content_len: u64,
-    /// The compressed bytes buffer, taken from the underlying reader.
     src: Vec<u8>,
-    /// The decompressed bytes buffer. Bytes are decompressed from src to dst
-    /// before being passed back to the caller.
     dst: Vec<u8>,
-    /// Index into dst and length: starting point of bytes previously output
-    /// that are still part of the decompressor window.
     ext_dict_offset: usize,
     ext_dict_len: usize,
-    /// Index into dst: starting point of bytes not yet read by caller.
     dst_start: usize,
-    /// Index into dst: ending point of bytes not yet read by caller.
     dst_end: usize,
-    /// External dictionary bytes (LZ4 frame format Dict_ID feature). Empty when none.
     dict: Vec<u8>,
-    /// Expected Dict_ID. Set together with `dict`. Frames with a non-matching Dict_ID
-    /// will be rejected.
     expected_dict_id: Option<u32>,
 }
 
@@ -94,11 +86,6 @@ impl<R: io::Read> FrameDecoder<R> {
     }
 
     /// Creates a new Decoder that decodes frames using the supplied external dictionary.
-    ///
-    /// `dict_id` is the Dict_ID that the decoder will require frames to declare via the
-    /// FLG.DictID flag. Frames whose Dict_ID does not match are rejected with
-    /// [`Error::DictIdMismatch`]; frames without a Dict_ID at all are rejected with
-    /// [`Error::DictionaryRequired`].
     pub fn with_dictionary(rdr: R, dict: &[u8], dict_id: u32) -> FrameDecoder<R> {
         let mut dec = Self::new(rdr);
         dec.dict = dict.to_vec();
@@ -112,9 +99,6 @@ impl<R: io::Read> FrameDecoder<R> {
     }
 
     /// Gets a mutable reference to the underlying reader in this decoder.
-    ///
-    /// Note that mutation of the stream may result in surprising results if
-    /// this decoder is continued to be used.
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.r
     }
@@ -154,13 +138,6 @@ impl<R: io::Read> FrameDecoder<R> {
 
         let max_block_size = frame_info.block_size.get_size();
         let dst_size = if frame_info.block_mode == BlockMode::Linked {
-            // In linked mode we consume the output (bumping dst_start) but leave the
-            // beginning of dst to be used as a prefix in subsequent blocks.
-            // That is at least until we have at least `max_block_size + WINDOW_SIZE`
-            // bytes in dst, then we setup an ext_dict with the last WINDOW_SIZE bytes
-            // and the output goes to the beginning of dst again.
-            // Since we always want to be able to write a full block (up to max_block_size)
-            // we need a buffer with at least `max_block_size * 2 + WINDOW_SIZE` bytes.
             max_block_size * 2 + WINDOW_SIZE
         } else {
             max_block_size
@@ -201,29 +178,16 @@ impl<R: io::Read> FrameDecoder<R> {
         debug_assert_eq!(self.dst_start, self.dst_end);
         let frame_info = self.current_frame_info.as_ref().unwrap();
 
-        // Adjust dst buffer offsets to decompress the next block
         let max_block_size = frame_info.block_size.get_size();
         if frame_info.block_mode == BlockMode::Linked {
-            // In linked mode we consume the output (bumping dst_start) but leave the
-            // beginning of dst to be used as a prefix in subsequent blocks.
-            // That is at least until we have at least `max_block_size + WINDOW_SIZE`
-            // bytes in dst, then we setup an ext_dict with the last WINDOW_SIZE bytes
-            // and the output goes to the beginning of dst again.
             debug_assert_eq!(self.dst.capacity(), max_block_size * 2 + WINDOW_SIZE);
             if self.dst_start + max_block_size > self.dst.capacity() {
-                // Output might not fit in the buffer.
-                // The ext_dict will become the last WINDOW_SIZE bytes
                 debug_assert!(self.dst_start >= max_block_size + WINDOW_SIZE);
                 self.ext_dict_offset = self.dst_start - WINDOW_SIZE;
                 self.ext_dict_len = WINDOW_SIZE;
-                // Output goes in the beginning of the buffer again.
                 self.dst_start = 0;
                 self.dst_end = 0;
             } else if self.dst_start + self.ext_dict_len > WINDOW_SIZE {
-                // There's more than WINDOW_SIZE bytes of lookback adding the prefix and ext_dict.
-                // Since we have a limited buffer we must shrink ext_dict in favor of the prefix,
-                // so that we can fit up to max_block_size bytes between dst_start and ext_dict
-                // start.
                 let delta = self
                     .ext_dict_len
                     .min(self.dst_start + self.ext_dict_len - WINDOW_SIZE);
@@ -238,7 +202,6 @@ impl<R: io::Read> FrameDecoder<R> {
             self.dst_end = 0;
         }
 
-        // Read and decompress block
         let block_info = {
             let mut buffer = [0u8; 4];
             self.r.read_exact(&mut buffer)?;
@@ -250,8 +213,6 @@ impl<R: io::Read> FrameDecoder<R> {
                 if len > max_block_size {
                     return Err(Error::BlockTooBig.into());
                 }
-                // TODO: Attempt to avoid initialization of read buffer when
-                // https://github.com/rust-lang/rust/issues/78485 stabilizes
                 self.r.read_exact(vec_resize_and_get_mut(
                     &mut self.dst,
                     self.dst_start,
@@ -273,8 +234,6 @@ impl<R: io::Read> FrameDecoder<R> {
                 if len > max_block_size {
                     return Err(Error::BlockTooBig.into());
                 }
-                // TODO: Attempt to avoid initialization of read buffer when
-                // https://github.com/rust-lang/rust/issues/78485 stabilizes
                 self.r
                     .read_exact(vec_resize_and_get_mut(&mut self.src, 0, len))?;
                 if frame_info.block_checksums {
@@ -290,16 +249,14 @@ impl<R: io::Read> FrameDecoder<R> {
                     let ext_dict = &tail[..self.ext_dict_len];
 
                     debug_assert!(head.len() - self.dst_start >= max_block_size);
-                    crate::block::decompress::decompress_internal::<true, _>(
+                    decompress_internal::<true, _>(
                         &self.src[..len],
                         &mut SliceSink::new(head, self.dst_start),
                         ext_dict,
                     )
                 } else if !self.dict.is_empty() {
-                    // Independent blocks (or first linked block) backed by an external
-                    // dictionary supplied via `with_dictionary`.
                     debug_assert!(self.dst.capacity() - self.dst_start >= max_block_size);
-                    crate::block::decompress::decompress_internal::<true, _>(
+                    decompress_internal::<true, _>(
                         &self.src[..len],
                         &mut vec_sink_for_decompression(
                             &mut self.dst,
@@ -310,9 +267,8 @@ impl<R: io::Read> FrameDecoder<R> {
                         &self.dict,
                     )
                 } else {
-                    // Independent blocks OR linked blocks with only prefix data
                     debug_assert!(self.dst.capacity() - self.dst_start >= max_block_size);
-                    crate::block::decompress::decompress_internal::<false, _>(
+                    decompress_internal::<false, _>(
                         &self.src[..len],
                         &mut vec_sink_for_decompression(
                             &mut self.dst,
@@ -351,7 +307,6 @@ impl<R: io::Read> FrameDecoder<R> {
             }
         }
 
-        // Content checksum, if applicable
         if frame_info.content_checksum {
             self.content_hasher
                 .write(&self.dst[self.dst_start..self.dst_end]);
@@ -371,7 +326,6 @@ impl<R: io::Read> FrameDecoder<R> {
 impl<R: io::Read> io::Read for FrameDecoder<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
-            // Fill read buffer if there's uncompressed data left
             if self.dst_start < self.dst_end {
                 let read_len = std::cmp::min(self.dst_end - self.dst_start, buf.len());
                 let dst_read_end = self.dst_start + read_len;
@@ -434,7 +388,6 @@ impl<R: fmt::Debug + io::Read> fmt::Debug for FrameDecoder<R> {
     }
 }
 
-/// Similar to `v.get_mut(start..end) but will adjust the len if needed.
 #[inline]
 fn vec_resize_and_get_mut(v: &mut Vec<u8>, start: usize, end: usize) -> &mut [u8] {
     if end > v.len() {

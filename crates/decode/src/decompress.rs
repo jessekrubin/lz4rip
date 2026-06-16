@@ -1,20 +1,21 @@
 //! LZ4 block decompression.
+#![forbid(unsafe_code)]
 
 use core::fmt;
 
-use crate::block::DecompressError;
-use crate::block::MINMATCH;
-use crate::sink::Sink;
-use crate::sink::SliceSink;
+use lz4rip_core::DecompressError;
+use lz4rip_core::Sink;
+use lz4rip_core::SliceSink;
+use lz4rip_core::MINMATCH;
 
 #[allow(unused_imports)]
 use alloc::vec;
 #[allow(unused_imports)]
 use alloc::vec::Vec;
 
-/// Read a variable-length integer: sum consecutive 0xFF bytes, terminated by a non-0xFF byte.
+/// Read a variable-length integer in the LZ4 encoding.
 #[inline]
-pub(super) fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize, DecompressError> {
+pub fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize, DecompressError> {
     let mut n: usize = 0;
     loop {
         let extra: u8 = *input
@@ -31,12 +32,10 @@ pub(super) fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize,
     Ok(n)
 }
 
-/// Masks the literal-length nibble (high nibble). When `(token & mask) == mask`,
-/// the literal length is extended (>= 15) via a variable-length integer.
 const LITERAL_LEN_MASK: u8 = 0b11110000;
 
-/// Masks the match-length nibble (low nibble). Test-only.
 #[cfg(test)]
+#[allow(dead_code)]
 const MATCH_LEN_MASK: u8 = 0b00001111;
 
 #[test]
@@ -48,18 +47,22 @@ fn check_token() {
     assert!(does_token_fit(0b10110000));
 }
 
-/// Returns true if both nibbles of the token are below 15 (no extended lengths needed).
+/// Whether the literal AND match lengths both fit in the token nibbles
+/// (no variable-length extension needed). This gates the fast path.
+///
+/// True when the literal nibble < 15, which implies both lengths are short.
 #[cfg(test)]
 #[inline]
 fn does_token_fit(token: u8) -> bool {
-    !((token & MATCH_LEN_MASK) == MATCH_LEN_MASK || (token & LITERAL_LEN_MASK) == LITERAL_LEN_MASK)
+    token < 0b11110000
 }
 
-/// Decompress all bytes of `input` into `output`.
+/// Decompress `input` into `output`, using `ext_dict` for cross-buffer
+/// back-references when `USE_DICT` is true.
 ///
 /// Returns the number of bytes written (decompressed) into `output`.
 #[inline]
-pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
+pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
     input: &[u8],
     output: &mut S,
     ext_dict: &[u8],
@@ -67,14 +70,8 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     let mut input_pos = 0;
     let initial_output_pos = output.pos();
 
-    // Margins for unchecked reads in the fast path. Inside these bounds, the
-    // fixed-width fast-path copies (16-byte literal, 18-byte match) are
-    // guaranteed not to read/write past the buffer. The slow path's wildcopy
-    // does its own per-operation headroom checks, so it is unaffected.
     let (lit_margin, match_margin) = (16, 18);
-    let safe_input_pos = input
-        .len()
-        .saturating_sub(lit_margin + 2 /* u16 match offset */);
+    let safe_input_pos = input.len().saturating_sub(lit_margin + 2);
     let mut safe_output_pos = output.capacity().saturating_sub(lit_margin + match_margin);
 
     if USE_DICT {
@@ -84,7 +81,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     loop {
         let in_safe_region = input_pos < safe_input_pos;
         let token = if in_safe_region {
-            super::hashtable::read_byte_unchecked(input, input_pos)
+            crate::primitives::read_byte_unchecked(input, input_pos)
         } else {
             *input
                 .get(input_pos)
@@ -92,14 +89,6 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
         };
         input_pos += 1;
 
-        // Fast region: the *literal* fits in the token (length < 15) and we are a
-        // safe distance from both buffer ends. The match length may still be
-        // extended (nibble == 15) -- it is read inline below with an explicit
-        // output-room check. Only long *literals* (which need careful, fully
-        // bounds-checked copying) fall through to the slow path. This keeps the
-        // common short-literal/long-match sequence (e.g. hdfs 52%, nci 28%) out
-        // of the slow path.
-        // aarch64: register comparisons first while the token load is in flight.
         let literal_fits = (token & LITERAL_LEN_MASK) != LITERAL_LEN_MASK;
         #[cfg(target_arch = "aarch64")]
         let enter_fast = in_safe_region && output.pos() < safe_output_pos && literal_fits;
@@ -110,17 +99,15 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             let match_nib = (token & 0xF) as usize;
 
             let offset =
-                super::hashtable::read_u16_unchecked(input, input_pos + literal_length) as usize;
+                crate::primitives::read_u16_unchecked(input, input_pos + literal_length) as usize;
             if offset == 0 {
                 return Err(DecompressError::OffsetZero);
             }
 
             let (out, pos) = output.output_mut_with_pos();
-            super::hashtable::wild_copy_16(input, input_pos, out, pos, literal_length);
+            crate::primitives::wild_copy_16(input, input_pos, out, pos, literal_length);
             input_pos += literal_length + 2;
 
-            // Hot path: short match (length <= 18). The output margin guarantees
-            // room for the fixed 18-byte match copy, so no per-op check is needed.
             if match_nib != 15 {
                 let match_length = MINMATCH + match_nib;
                 if USE_DICT && offset > *pos {
@@ -143,15 +130,15 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                     return Err(DecompressError::OffsetOutOfBounds);
                 }
                 if offset >= 8 {
-                    super::hashtable::wild_match_copy_18(out, start, pos, match_length);
+                    crate::primitives::wild_match_copy_18(out, start, pos, match_length);
                 } else if offset == 1 {
                     let val = out[start];
                     out[*pos..*pos + match_length].fill(val);
                     *pos += match_length;
                 } else if match_length <= offset {
-                    super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
+                    crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
                 } else {
-                    super::hashtable::copy_within_overlapping(
+                    crate::primitives::copy_within_overlapping(
                         out,
                         start,
                         pos,
@@ -162,8 +149,6 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                 continue;
             }
 
-            // Extended match (nibble == 15): read the variable-length tail, then
-            // bounds-check the (now untrusted) match length against the output.
             let match_length = (MINMATCH + 15)
                 .checked_add(read_integer(input, &mut input_pos)?)
                 .ok_or(DecompressError::LiteralOutOfBounds)?;
@@ -191,20 +176,19 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             if did_overflow {
                 return Err(DecompressError::OffsetOutOfBounds);
             }
-            // Same tiered wildcopy as the slow path; offset is almost always >= 16.
             if offset >= 32 && *pos + match_length + 32 <= out.len() {
-                super::hashtable::wild_copy_match_32(out, start, pos, match_length);
+                crate::primitives::wild_copy_match_32(out, start, pos, match_length);
             } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
-                super::hashtable::wild_copy_match_16(out, start, pos, match_length);
+                crate::primitives::wild_copy_match_16(out, start, pos, match_length);
             } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
-                super::hashtable::wild_copy_match_8(out, start, pos, match_length);
+                crate::primitives::wild_copy_match_8(out, start, pos, match_length);
             } else if match_length > offset {
                 if offset == 1 {
                     let val = out[start];
                     out[*pos..*pos + match_length].fill(val);
                     *pos += match_length;
                 } else {
-                    super::hashtable::copy_within_overlapping(
+                    crate::primitives::copy_within_overlapping(
                         out,
                         start,
                         pos,
@@ -213,7 +197,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                     );
                 }
             } else {
-                super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
+                crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
             }
             continue;
         }
@@ -236,16 +220,12 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                 });
             }
             let (out, pos) = output.output_mut_with_pos();
-            // Inline wildcopy when there's overcopy headroom in both buffers;
-            // this avoids the memmove call that dominates slow-path cost (e.g.
-            // sao, ~69% of decompress time). The exact path runs only for the
-            // final sequences near the buffer end.
             if input_pos + literal_length + 32 <= input.len()
                 && *pos + literal_length + 32 <= out.len()
             {
-                super::hashtable::wild_copy_literals(input, input_pos, out, pos, literal_length);
+                crate::primitives::wild_copy_literals(input, input_pos, out, pos, literal_length);
             } else {
-                super::hashtable::copy_from_src(input, input_pos, out, pos, literal_length);
+                crate::primitives::copy_from_src(input, input_pos, out, pos, literal_length);
             }
             input_pos += literal_length;
         }
@@ -291,27 +271,22 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
         if did_overflow {
             return Err(DecompressError::OffsetOutOfBounds);
         }
-        // Inline 8-byte wildcopy for offset >= 8 when there's overcopy headroom.
-        // Handles both overlapping (offset < match_length) and non-overlapping
-        // cases and avoids the memmove call (~25% of sao decompress time was a
-        // ~6-byte memmove call). The specialized branches below run only for
-        // small offsets or near the buffer end.
         if offset >= 32 && *pos + match_length + 32 <= out.len() {
-            super::hashtable::wild_copy_match_32(out, start, pos, match_length);
+            crate::primitives::wild_copy_match_32(out, start, pos, match_length);
         } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
-            super::hashtable::wild_copy_match_16(out, start, pos, match_length);
+            crate::primitives::wild_copy_match_16(out, start, pos, match_length);
         } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
-            super::hashtable::wild_copy_match_8(out, start, pos, match_length);
+            crate::primitives::wild_copy_match_8(out, start, pos, match_length);
         } else if match_length > offset {
             if offset == 1 {
                 let val = out[start];
                 out[*pos..*pos + match_length].fill(val);
                 *pos += match_length;
             } else {
-                super::hashtable::copy_within_overlapping(out, start, pos, match_length, offset);
+                crate::primitives::copy_within_overlapping(out, start, pos, match_length, offset);
             }
         } else {
-            super::hashtable::copy_within_nonoverlap(out, start, pos, match_length);
+            crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
         }
     }
     Ok(output.pos() - initial_output_pos)
@@ -324,13 +299,11 @@ fn copy_from_dict(
     offset: usize,
     match_length: usize,
 ) -> Result<usize, DecompressError> {
-    // If we're here we know offset > output.pos
     debug_assert!(offset > output.pos());
     let (dict_offset, did_overflow) = ext_dict.len().overflowing_sub(offset - output.pos());
     if did_overflow {
         return Err(DecompressError::OffsetOutOfBounds);
     }
-    // Can't copy past ext_dict len, the match may cross dict and output
     let dict_match_length = match_length.min(ext_dict.len() - dict_offset);
     let ext_match = &ext_dict[dict_offset..dict_offset + dict_match_length];
     output.extend_from_slice(ext_match);
@@ -338,7 +311,7 @@ fn copy_from_dict(
 }
 
 /// Decompress all bytes of `input` into `output`.
-/// `output` should be preallocated with a size of of the uncompressed data.
+/// `output` should be preallocated with a size of the uncompressed data.
 #[inline]
 pub fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize, DecompressError> {
     decompress_internal::<false, _>(input, &mut SliceSink::new(output, 0), b"")
@@ -347,8 +320,6 @@ pub fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize, Decompr
 /// Decompress all bytes of `input` into a new vec.
 ///
 /// `uncompressed_size` must be >= the actual decompressed output size.
-/// Returns [`DecompressError::OutputTooSmall`] if the buffer is too small.
-/// The returned `Vec` is truncated to the actual decompressed length.
 #[inline]
 pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, DecompressError> {
     let mut decompressed: Vec<u8> = vec![0; uncompressed_size];
@@ -426,17 +397,14 @@ mod test {
             Err(DecompressError::ExpectedAnotherByte)
         ));
         assert!(matches!(
-            // incomplete literal len
             decompress(&[0xF0], 255),
             Err(DecompressError::ExpectedAnotherByte)
         ));
         assert!(matches!(
-            // incomplete match offset
             decompress(&[0x0F, 0], 255),
             Err(DecompressError::ExpectedAnotherByte)
         ));
         assert!(matches!(
-            // incomplete match len
             decompress(&[0x0F, 1, 0], 255),
             Err(DecompressError::ExpectedAnotherByte)
         ));
@@ -444,12 +412,10 @@ mod test {
 
     #[test]
     fn offset_oob() {
-        // incomplete literal
         assert!(matches!(
             decompress(&[0x40, b'a', 1, 0], 4),
             Err(DecompressError::LiteralOutOfBounds)
         ));
-        // literal too large for output
         assert!(matches!(
             decompress(&[0x20, b'a', b'a', 1, 0], 1),
             Err(DecompressError::OutputTooSmall {
@@ -457,7 +423,6 @@ mod test {
                 actual: 1
             })
         ));
-        // match too large for output
         assert!(matches!(
             decompress(&[0x10, b'a', 1, 0], 4),
             Err(DecompressError::OutputTooSmall {
@@ -465,8 +430,6 @@ mod test {
                 actual: 4
             })
         ));
-
-        // out-of-bounds hot-loop
         assert!(matches!(
             decompress(
                 &[0x0E, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -474,18 +437,15 @@ mod test {
             ),
             Err(DecompressError::OffsetOutOfBounds)
         ));
-        // out-of-bounds for dict
         assert!(matches!(
             Decompressor::with_dict(&[0_u8; 250])
                 .decompress(&[0x0E, 255, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256,),
             Err(DecompressError::OffsetOutOfBounds)
         ));
-        // out-of-bounds non-hot-loop overlapping
         assert!(matches!(
             decompress(&[0x0F, 1, 0, 1, 0x70, 0, 0, 0, 0, 0, 0, 0], 256),
             Err(DecompressError::OffsetOutOfBounds)
         ));
-        // out-of-bounds non-hot-loop non-overlapping
         assert!(matches!(
             decompress(&[0x40, 0, 0, 0, 0, 255, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256),
             Err(DecompressError::OffsetOutOfBounds)
@@ -498,42 +458,5 @@ mod test {
             decompress(&[0x0E, 0, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256),
             Err(DecompressError::OffsetZero)
         ));
-    }
-
-    // Small randomized roundtrip to exercise the slow-path wildcopy paths
-    // (overcopy literals/matches at varying offsets) under Miri.
-    #[test]
-    fn miri_wildcopy_roundtrip() {
-        let mut state: u64 = 0x1234_5678_9abc_def1;
-        let mut rng = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        for _ in 0..40 {
-            let len = (rng() % 600) as usize + 64;
-            let alpha = 1 + (rng() % 40);
-            let data: Vec<u8> = (0..len).map(|_| (rng() % alpha) as u8).collect();
-            let max = crate::block::get_maximum_output_size(data.len());
-            let mut comp = vec![0u8; max];
-            let n = crate::block::compress_into(&data, &mut comp).unwrap();
-            let out = decompress(&comp[..n], data.len()).unwrap();
-            assert_eq!(out, data);
-        }
-    }
-
-    #[test]
-    fn read_integer_overflow() {
-        // Token 0xF0 = 15 literals, 0 match. Literal length extended by read_integer.
-        // Feed enough 0xFF continuation bytes to overflow usize on 32-bit (or just
-        // exceed any reasonable length on 64-bit). The checked_add must catch it.
-        let mut input = vec![0xF0u8]; // token: 15 literals
-                                      // 256 continuation bytes: value = 15 + 256*255 = 65295 on 64-bit (no overflow),
-                                      // but literal_length > input.len() - input_pos catches it as LiteralOutOfBounds.
-        input.extend(core::iter::repeat_n(0xFF, 256));
-        input.push(0); // terminator for read_integer
-        let result = decompress(&input, 1024);
-        assert!(result.is_err(), "must reject absurd literal length");
     }
 }

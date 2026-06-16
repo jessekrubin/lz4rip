@@ -1,59 +1,41 @@
-//! LZ4 block format. Works in `no_std` environments.
-//!
-//! See the [spec](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md).
-//!
-//! # Example: block format roundtrip
-//! ```
-//! use lz4rip::block::{compress, decompress};
-//! let input: &[u8] = b"Hello people, what's up?";
-//! let compressed = compress(input);
-//! let uncompressed = decompress(&compressed, input.len()).unwrap();
-//! assert_eq!(input, uncompressed);
-//! ```
-//!
+//! Shared types and constants for the lz4rip encode/decode crates.
 
-#[forbid(unsafe_code)]
-pub(crate) mod compress;
-#[forbid(unsafe_code)]
-pub(crate) mod decompress;
-#[forbid(unsafe_code)]
-mod dict;
-pub(crate) mod hashtable;
-
-pub use compress::{compress, compress_into, get_maximum_output_size, Compressor};
-pub use decompress::{decompress, decompress_into, Decompressor};
-pub use dict::DictTrainer;
+#![forbid(unsafe_code)]
+#![deny(warnings)]
+#![deny(missing_docs)]
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(feature = "nightly", feature(optimize_attribute))]
 
 use core::{error::Error, fmt};
 
-pub(crate) const WINDOW_SIZE: usize = 64 * 1024;
+mod sink;
+pub use sink::{Sink, SliceSink};
+
+mod fastcpy;
+pub use fastcpy::slice_copy;
+
+// --- LZ4 block format constants ---
+
+/// Window size for LZ4 compression (64 KB).
+pub const WINDOW_SIZE: usize = 64 * 1024;
 
 /// Last match must start at least 12 bytes before end of block.
-const MFLIMIT: usize = 12;
+pub const MFLIMIT: usize = 12;
 
 /// Last 5 bytes are always literals.
-const LAST_LITERALS: usize = 5;
+pub const LAST_LITERALS: usize = 5;
 
 /// LAST_LITERALS + 1: extra byte for register-width reads near end.
-const END_OFFSET: usize = LAST_LITERALS + 1;
+pub const END_OFFSET: usize = LAST_LITERALS + 1;
 
 /// Minimum compressible block length: MFLIMIT + 1 for the token.
-const LZ4_MIN_LENGTH: usize = MFLIMIT + 1;
+pub const LZ4_MIN_LENGTH: usize = MFLIMIT + 1;
 
-const MAXD_LOG: usize = 16;
-const MAX_DISTANCE: usize = (1 << MAXD_LOG) - 1;
+/// Maximum match distance (65535).
+pub const MAX_DISTANCE: usize = (1 << 16) - 1;
 
-#[allow(dead_code)]
-const MATCH_LENGTH_MASK: u32 = (1_u32 << 4) - 1;
-
-const MINMATCH: usize = 4;
-
-#[allow(dead_code)]
-const FASTLOOP_SAFE_DISTANCE: usize = 64;
-
-/// Inputs below this size use `HashTable4KU16`.
-#[allow(dead_code)]
-const LZ4_64KLIMIT: usize = (64 * 1024) + (MFLIMIT - 1);
+/// Minimum match length.
+pub const MINMATCH: usize = 4;
 
 /// An error representing invalid compressed data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,15 +104,3 @@ impl fmt::Display for CompressError {
 impl Error for DecompressError {}
 
 impl Error for CompressError {}
-
-#[test]
-fn integer_roundtrip() {
-    for value in [0, 1, 254, 255, 256, 1000, 65535, 100_000] {
-        let mut buf = vec![0u8; value / 255 + 2];
-        let mut sink = crate::sink::SliceSink::new(&mut buf, 0);
-        self::compress::write_integer(&mut sink, value);
-
-        let decoded = self::decompress::read_integer(&buf, &mut 0).unwrap();
-        assert_eq!(value, decoded);
-    }
-}
