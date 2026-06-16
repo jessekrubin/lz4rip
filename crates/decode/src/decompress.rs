@@ -1,5 +1,4 @@
 //! LZ4 block decompression.
-#![forbid(unsafe_code)]
 
 use core::fmt;
 

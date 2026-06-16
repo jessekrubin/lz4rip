@@ -1,5 +1,4 @@
 //! LZ4 block compression.
-#![forbid(unsafe_code)]
 
 use core::fmt;
 

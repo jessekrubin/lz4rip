@@ -191,6 +191,11 @@ impl HashTable for HashTableU32U16 {
 pub struct HashTableU32 {
     dict: Box<[u32; HASHTABLE_SIZE_U32]>,
 }
+impl Default for HashTableU32 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl HashTableU32 {
     #[inline]
     /// Create a new zeroed hash table.

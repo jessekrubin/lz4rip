@@ -1,5 +1,4 @@
 //! COVER dictionary trainer.
-#![forbid(unsafe_code)]
 
 use alloc::collections::VecDeque;
 use alloc::vec;
