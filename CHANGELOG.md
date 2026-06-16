@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
+### Changed
+
+- Split into workspace: `lz4rip-core`, `lz4rip-encode`, `lz4rip-decode`. Encoder and decoder are separate LLVM compilation units, eliminating the LTO poisoning class of regressions (dead encoder code shifting register allocation in the decoder). Public API unchanged.
+- Decompress: `likely()` hint on fast-path gate. Previously a dead end due to register allocation interference when encoder and decoder shared a module; the crate split makes it effective. 4-17% decompress improvement across Silesia corpus, gap vs C lz4 drops from 10-33% to 2-21%.
+
 ## [0.4.0] - 2026-06-11
 
 ### Breaking
