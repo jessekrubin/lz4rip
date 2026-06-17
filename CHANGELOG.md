@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-18
+
+### Breaking
+
+- `Compressor` is now `Compressor<'a>`: borrows the dictionary (`&'a [u8]`) instead of cloning into `Vec<u8>`. `Compressor::new()` returns `Compressor<'static>`. Code that stored `Compressor` in a struct without a lifetime parameter needs updating.
+- `Decompressor` is now `Decompressor<'a>`: borrows the dictionary instead of cloning. Same migration as `Compressor`.
+
+### Added
+
+- No-alloc support for block compress and decompress. Hash tables are stack-allocated (~8 KB) when the `alloc` feature is off. All `_into` functions, `Compressor`, and `Decompressor` work without `alloc`.
+- `alloc` feature flag on `lz4rip`, `lz4rip-encode`, and `lz4rip-decode`. `std` implies `alloc`. Without `alloc`, `compress()`/`decompress()` (Vec-returning), and `DictTrainer` are unavailable.
+- `compress_into_with_dict(input, output, dict)` free function for one-shot dictionary compression without a `Compressor` struct.
+- CI: `cargo check --no-default-features` for encode, decode, and facade crates.
+
 ## [0.5.2] - 2026-06-17
 
 - Fixed nightly clippy: removed duplicated `#[forbid(unsafe_code)]` attributes in `lz4rip-encode` and `lz4rip-decode` (redundant with crate-level `#[forbid]` on `mod` declarations), added `Default` impl for `HashTableU32`
