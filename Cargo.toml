@@ -21,8 +21,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "frame"]
+alloc = ["lz4rip-encode/alloc", "lz4rip-decode/alloc"]
 frame = ["std", "dep:twox-hash"]
-std = ["lz4rip-core/std", "lz4rip-encode/std", "lz4rip-decode/std"]
+std = ["alloc", "lz4rip-core/std", "lz4rip-encode/std", "lz4rip-decode/std"]
 nightly = ["lz4rip-core/nightly", "lz4rip-encode/nightly", "lz4rip-decode/nightly"]
 
 [dependencies]

@@ -25,6 +25,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --no-dev-deps --lib --tests 2>/dev/null || cargo test --lib --tests -p lz4rip
       - run: cargo test --no-dev-deps --lib --tests --no-default-features --features frame 2>/dev/null || cargo test --lib --tests --no-default-features --features frame -p lz4rip
+      - run: cargo check --no-default-features -p lz4rip-encode
+      - run: cargo check --no-default-features -p lz4rip-decode
+      - run: cargo check --no-default-features -p lz4rip
 
   nightly:
     name: nightly

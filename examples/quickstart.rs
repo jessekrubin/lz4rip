@@ -18,7 +18,7 @@ fn main() {
     let compressed = comp.compress(msg);
     let no_dict = compress(msg);
 
-    let decomp = Decompressor::with_dict(dict);
+    let decomp = Decompressor::new(dict);
     let original = decomp.decompress(&compressed, msg.len()).unwrap();
     assert_eq!(&original, msg);
     println!(

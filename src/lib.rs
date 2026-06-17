@@ -64,9 +64,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-/// LZ4 block format. Works in `no_std` environments.
+/// LZ4 block format. Works in `no_std` and no-alloc environments.
 ///
 /// See the [spec](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md).
+///
+/// Without the `alloc` feature, only [`decompress_into`],
+/// [`decompress_into_with_dict`], and [`Decompressor`] are available.
 ///
 /// # Example: block format roundtrip
 /// ```
@@ -78,18 +81,27 @@
 /// ```
 pub mod block {
     pub use lz4rip_core::{CompressError, DecompressError};
-    pub use lz4rip_decode::{decompress, decompress_into, Decompressor};
+    pub use lz4rip_decode::{decompress_into, decompress_into_with_dict, Decompressor};
     pub use lz4rip_encode::{
-        compress, compress_into, get_maximum_output_size, Compressor, DictTrainer,
+        compress_into, compress_into_with_dict, get_maximum_output_size, Compressor,
     };
+
+    #[cfg(feature = "alloc")]
+    pub use lz4rip_decode::decompress;
+    #[cfg(feature = "alloc")]
+    pub use lz4rip_encode::{compress, DictTrainer};
 }
 
 #[cfg(feature = "frame")]
 #[cfg_attr(docsrs, doc(cfg(feature = "frame")))]
 pub mod frame;
 
-pub use block::{compress, compress_into, get_maximum_output_size};
-pub use block::{decompress, decompress_into};
+#[cfg(feature = "alloc")]
+pub use block::{compress, decompress};
+pub use block::{
+    compress_into, compress_into_with_dict, decompress_into, decompress_into_with_dict,
+    get_maximum_output_size,
+};
 
 #[cfg(test)]
 mod tests {
@@ -117,7 +129,7 @@ mod tests {
         let compressed = comp.compress(input);
         assert!(compressed.len() < lz4rip_encode::compress(input).len());
 
-        let decomp = lz4rip_decode::Decompressor::with_dict(dict);
+        let decomp = lz4rip_decode::Decompressor::new(dict);
         let uncompressed = decomp.decompress(&compressed, input.len()).unwrap();
         assert_eq!(input, &uncompressed[..]);
     }
@@ -141,7 +153,7 @@ mod tests {
         assert!(!dict.is_empty());
 
         let mut compressor = lz4rip_encode::Compressor::with_dict(&dict);
-        let decompressor = lz4rip_decode::Decompressor::with_dict(&dict);
+        let decompressor = lz4rip_decode::Decompressor::new(&dict);
 
         let test_msg = json_msg(9999);
         let compressed_with = compressor.compress(&test_msg);
