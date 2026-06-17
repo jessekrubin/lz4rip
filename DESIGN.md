@@ -99,6 +99,6 @@ Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB.
 
 ## Scope
 
-LZ4-HC, LZ4-OPT, and LZ4-MID are permanently out of scope. These are higher-ratio, lower-throughput compression modes. Use zstd when ratio matters.
+LZ4-HC, LZ4-OPT, and LZ4-MID are permanently out of scope. These are higher-ratio, lower-throughput compression modes. Use zstd ([zrip](https://github.com/paddor/zrip)) when ratio matters.
 
 lz4rip implements LZ4 block format and LZ4 frame format (streaming, behind `frame` feature flag). The block format is the performance-critical path.
