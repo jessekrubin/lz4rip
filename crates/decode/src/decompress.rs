@@ -7,9 +7,9 @@ use lz4rip_core::Sink;
 use lz4rip_core::SliceSink;
 use lz4rip_core::MINMATCH;
 
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use alloc::vec;
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 /// Read a variable-length integer in the LZ4 encoding.
@@ -321,6 +321,7 @@ pub fn decompress_into(input: &[u8], output: &mut [u8]) -> Result<usize, Decompr
 /// Decompress all bytes of `input` into a new vec.
 ///
 /// `uncompressed_size` must be >= the actual decompressed output size.
+#[cfg(feature = "alloc")]
 #[inline]
 pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, DecompressError> {
     let mut decompressed: Vec<u8> = vec![0; uncompressed_size];
@@ -330,15 +331,26 @@ pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, Dec
     Ok(decompressed)
 }
 
+/// Decompress `input` into `output` using an external dictionary, returning
+/// the number of bytes written.
+#[inline]
+pub fn decompress_into_with_dict(
+    input: &[u8],
+    output: &mut [u8],
+    dict: &[u8],
+) -> Result<usize, DecompressError> {
+    decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), dict)
+}
+
 /// A block decompressor seeded with an external dictionary.
 ///
 /// When no dictionary is needed, use the free functions [`decompress`] or
 /// [`decompress_into`] instead.
-pub struct Decompressor {
-    dict: Vec<u8>,
+pub struct Decompressor<'a> {
+    dict: &'a [u8],
 }
 
-impl fmt::Debug for Decompressor {
+impl fmt::Debug for Decompressor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Decompressor")
             .field("dict_len", &self.dict.len())
@@ -346,17 +358,16 @@ impl fmt::Debug for Decompressor {
     }
 }
 
-impl Decompressor {
+impl<'a> Decompressor<'a> {
     /// Create a decompressor seeded with an external dictionary.
-    pub fn with_dict(dict: &[u8]) -> Self {
-        Decompressor {
-            dict: dict.to_vec(),
-        }
+    pub fn new(dict: &'a [u8]) -> Self {
+        Decompressor { dict }
     }
 
     /// Decompress `input` into a new `Vec<u8>`.
     ///
     /// `uncompressed_size` must be >= the actual decompressed size.
+    #[cfg(feature = "alloc")]
     pub fn decompress(
         &self,
         input: &[u8],
@@ -366,7 +377,7 @@ impl Decompressor {
         let len = decompress_internal::<true, _>(
             input,
             &mut SliceSink::new(&mut decompressed, 0),
-            &self.dict,
+            self.dict,
         )?;
         decompressed.truncate(len);
         Ok(decompressed)
@@ -378,7 +389,7 @@ impl Decompressor {
         input: &[u8],
         output: &mut [u8],
     ) -> Result<usize, DecompressError> {
-        decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), &self.dict)
+        decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), self.dict)
     }
 }
 
@@ -439,7 +450,7 @@ mod test {
             Err(DecompressError::OffsetOutOfBounds)
         ));
         assert!(matches!(
-            Decompressor::with_dict(&[0_u8; 250])
+            Decompressor::new(&[0_u8; 250])
                 .decompress(&[0x0E, 255, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256,),
             Err(DecompressError::OffsetOutOfBounds)
         ));
