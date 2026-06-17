@@ -79,3 +79,9 @@ name = "fuzz_roundtrip_dict"
 path = "fuzz_targets/fuzz_roundtrip_dict.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_frame_dict"
+path = "fuzz_targets/fuzz_roundtrip_frame_dict.rs"
+test = false
+doc = false
