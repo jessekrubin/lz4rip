@@ -4,7 +4,7 @@ use core::fmt;
 
 use crate::hashtable::HashTable;
 use crate::verified_sink::VerifiedSliceSink;
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use alloc::vec;
 use lz4rip_core::CompressError;
 use lz4rip_core::Sink;
@@ -15,7 +15,7 @@ use lz4rip_core::MFLIMIT;
 use lz4rip_core::MINMATCH;
 use lz4rip_core::WINDOW_SIZE;
 
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 pub(crate) use crate::hashtable::HashTableU32;
@@ -458,7 +458,20 @@ pub fn compress_into(input: &[u8], output: &mut [u8]) -> Result<usize, CompressE
     compress_into_sink_with_dict::<false>(input, &mut VerifiedSliceSink::new(output, 0), b"")
 }
 
+/// Compress all bytes of `input` into `output` using an external dictionary.
+///
+/// Returns the number of bytes written (compressed) into `output`.
+#[inline]
+pub fn compress_into_with_dict(
+    input: &[u8],
+    output: &mut [u8],
+    dict: &[u8],
+) -> Result<usize, CompressError> {
+    compress_into_sink_with_dict::<true>(input, &mut VerifiedSliceSink::new(output, 0), dict)
+}
+
 /// Compress all bytes of `input`.
+#[cfg(feature = "alloc")]
 #[inline]
 pub fn compress(input: &[u8]) -> Vec<u8> {
     let max_compressed_size = get_maximum_output_size(input.len());
@@ -488,11 +501,11 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 /// let mut output = vec![0u8; get_maximum_output_size(input.len())];
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
-pub struct Compressor {
-    tables: CompressorTables,
+pub struct Compressor<'a> {
+    tables: CompressorTables<'a>,
 }
 
-enum CompressorTables {
+enum CompressorTables<'a> {
     Plain {
         table: HashTableU32,
         stream_offset: usize,
@@ -500,11 +513,11 @@ enum CompressorTables {
     Dict {
         table: HashTableU32U16,
         pristine: HashTableU32U16,
-        dict: Vec<u8>,
+        dict: &'a [u8],
     },
 }
 
-impl fmt::Debug for Compressor {
+impl fmt::Debug for Compressor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.tables {
             CompressorTables::Plain { .. } => {
@@ -518,7 +531,7 @@ impl fmt::Debug for Compressor {
     }
 }
 
-impl Compressor {
+impl Compressor<'static> {
     /// Create a new compressor without a dictionary.
     pub fn new() -> Self {
         Compressor {
@@ -528,13 +541,15 @@ impl Compressor {
             },
         }
     }
+}
 
+impl<'a> Compressor<'a> {
     /// Create a new compressor seeded with an external dictionary.
     ///
     /// If `dict` is shorter than 4 bytes, it is ignored.
-    pub fn with_dict(dict: &[u8]) -> Self {
+    pub fn with_dict(dict: &'a [u8]) -> Self {
         if dict.len() < MINMATCH {
-            return Self::new();
+            return Compressor::new();
         }
         let trimmed = if dict.len() > WINDOW_SIZE {
             &dict[dict.len() - WINDOW_SIZE..]
@@ -548,7 +563,7 @@ impl Compressor {
             tables: CompressorTables::Dict {
                 table: HashTableU32U16::new(),
                 pristine,
-                dict: trimmed.to_vec(),
+                dict: trimmed,
             },
         }
     }
@@ -616,60 +631,11 @@ impl Compressor {
     }
 
     /// Compress `input` into a new `Vec<u8>`.
+    #[cfg(feature = "alloc")]
     pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
         let max_compressed = get_maximum_output_size(input.len());
         let mut compressed = vec![0u8; max_compressed];
-        let compressed_len = match &mut self.tables {
-            CompressorTables::Dict {
-                table,
-                pristine,
-                dict,
-            } => {
-                if dict.len() + input.len() < u16::MAX as usize {
-                    table.clear();
-                    compress_with_dict_table(
-                        input,
-                        &mut VerifiedSliceSink::new(&mut compressed, 0),
-                        table,
-                        pristine,
-                        dict,
-                        dict.len(),
-                    )
-                } else {
-                    compress_into_sink_with_dict::<true>(
-                        input,
-                        &mut VerifiedSliceSink::new(&mut compressed, 0),
-                        dict,
-                    )
-                }
-            }
-            CompressorTables::Plain {
-                table,
-                stream_offset,
-            } => {
-                let offset = prepare_plain_table(table, stream_offset, input.len());
-                if offset > 0 {
-                    compress_internal::<_, false, true, _>(
-                        input,
-                        0,
-                        &mut VerifiedSliceSink::new(&mut compressed, 0),
-                        table,
-                        b"",
-                        offset,
-                    )
-                } else {
-                    compress_internal::<_, false, false, _>(
-                        input,
-                        0,
-                        &mut VerifiedSliceSink::new(&mut compressed, 0),
-                        table,
-                        b"",
-                        0,
-                    )
-                }
-            }
-        }
-        .unwrap();
+        let compressed_len = self.compress_into(input, &mut compressed).unwrap();
         compressed.truncate(compressed_len);
         compressed.shrink_to_fit();
         compressed
@@ -700,7 +666,7 @@ fn prepare_plain_table(
     offset
 }
 
-impl Default for Compressor {
+impl Default for Compressor<'static> {
     fn default() -> Self {
         Self::new()
     }
@@ -773,20 +739,22 @@ mod tests {
         let input: &[u8] = &[
             10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
         ];
-        let _out = compress(input);
+        let mut output = [0u8; get_maximum_output_size(20)];
+        let _ = compress_into(input, &mut output).unwrap();
     }
 
     #[test]
     fn test_conformant_last_block() {
         let aaas: &[u8] = b"aaaaaaaaaaaaaaa";
 
-        let out = compress(&aaas[..12]);
-        assert!(out.len() > 12);
-        let out = compress(&aaas[..13]);
-        assert!(out.len() <= 13);
-        let out = compress(&aaas[..14]);
-        assert!(out.len() <= 14);
-        let out = compress(&aaas[..15]);
-        assert!(out.len() <= 15);
+        let mut out = [0u8; get_maximum_output_size(15)];
+        let n = compress_into(&aaas[..12], &mut out).unwrap();
+        assert!(n > 12);
+        let n = compress_into(&aaas[..13], &mut out).unwrap();
+        assert!(n <= 13);
+        let n = compress_into(&aaas[..14], &mut out).unwrap();
+        assert!(n <= 14);
+        let n = compress_into(&aaas[..15], &mut out).unwrap();
+        assert!(n <= 15);
     }
 }

@@ -1,4 +1,4 @@
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
 /// Count matching bytes between `input[cur..]` and `source[candidate..]`,
@@ -129,9 +129,13 @@ const U32_HASH_BYTES: usize = 5;
 #[derive(Debug)]
 #[repr(align(64))]
 pub(crate) struct HashTableU32U16 {
+    #[cfg(feature = "alloc")]
     dict: Box<[u16; HASHTABLE_SIZE_U16]>,
+    #[cfg(not(feature = "alloc"))]
+    dict: [u16; HASHTABLE_SIZE_U16],
 }
 impl HashTableU32U16 {
+    #[cfg(feature = "alloc")]
     #[inline]
     pub(crate) fn new() -> Self {
         let dict = alloc::vec![0; HASHTABLE_SIZE_U16]
@@ -139,6 +143,13 @@ impl HashTableU32U16 {
             .try_into()
             .unwrap();
         Self { dict }
+    }
+    #[cfg(not(feature = "alloc"))]
+    #[inline]
+    pub(crate) fn new() -> Self {
+        Self {
+            dict: [0u16; HASHTABLE_SIZE_U16],
+        }
     }
 }
 impl HashTable for HashTableU32U16 {
@@ -189,7 +200,10 @@ impl HashTable for HashTableU32U16 {
 /// A 2K entry hash table using 32-bit values (8 KB total).
 #[derive(Debug)]
 pub struct HashTableU32 {
+    #[cfg(feature = "alloc")]
     dict: Box<[u32; HASHTABLE_SIZE_U32]>,
+    #[cfg(not(feature = "alloc"))]
+    dict: [u32; HASHTABLE_SIZE_U32],
 }
 impl Default for HashTableU32 {
     fn default() -> Self {
@@ -197,6 +211,7 @@ impl Default for HashTableU32 {
     }
 }
 impl HashTableU32 {
+    #[cfg(feature = "alloc")]
     #[inline]
     /// Create a new zeroed hash table.
     pub fn new() -> Self {
@@ -205,6 +220,14 @@ impl HashTableU32 {
             .try_into()
             .unwrap();
         Self { dict }
+    }
+    #[cfg(not(feature = "alloc"))]
+    #[inline]
+    /// Create a new zeroed hash table.
+    pub fn new() -> Self {
+        Self {
+            dict: [0u32; HASHTABLE_SIZE_U32],
+        }
     }
 
     /// Subtract `offset` from all entries (saturating).

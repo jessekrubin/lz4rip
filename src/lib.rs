@@ -80,17 +80,16 @@
 /// assert_eq!(input, uncompressed);
 /// ```
 pub mod block {
-    pub use lz4rip_core::DecompressError;
+    pub use lz4rip_core::{CompressError, DecompressError};
     pub use lz4rip_decode::{decompress_into, decompress_into_with_dict, Decompressor};
+    pub use lz4rip_encode::{
+        compress_into, compress_into_with_dict, get_maximum_output_size, Compressor,
+    };
 
-    #[cfg(feature = "alloc")]
-    pub use lz4rip_core::CompressError;
     #[cfg(feature = "alloc")]
     pub use lz4rip_decode::decompress;
     #[cfg(feature = "alloc")]
-    pub use lz4rip_encode::{
-        compress, compress_into, get_maximum_output_size, Compressor, DictTrainer,
-    };
+    pub use lz4rip_encode::{compress, DictTrainer};
 }
 
 #[cfg(feature = "frame")]
@@ -98,8 +97,11 @@ pub mod block {
 pub mod frame;
 
 #[cfg(feature = "alloc")]
-pub use block::{compress, compress_into, decompress, get_maximum_output_size};
-pub use block::{decompress_into, decompress_into_with_dict};
+pub use block::{compress, decompress};
+pub use block::{
+    compress_into, compress_into_with_dict, decompress_into, decompress_into_with_dict,
+    get_maximum_output_size,
+};
 
 #[cfg(test)]
 mod tests {

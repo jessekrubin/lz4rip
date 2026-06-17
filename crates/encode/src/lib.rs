@@ -5,16 +5,21 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "nightly", feature(optimize_attribute))]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[forbid(unsafe_code)]
 mod compress;
+#[cfg(feature = "alloc")]
 #[forbid(unsafe_code)]
 mod dict;
 pub(crate) mod hashtable;
 mod verified_sink;
 
-pub use compress::{compress, compress_into, get_maximum_output_size, Compressor};
+#[cfg(feature = "alloc")]
+pub use compress::compress;
+pub use compress::{compress_into, compress_into_with_dict, get_maximum_output_size, Compressor};
+#[cfg(feature = "alloc")]
 pub use dict::DictTrainer;
 pub use lz4rip_core::CompressError;
 
