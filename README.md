@@ -14,7 +14,7 @@ lz4rip = "0.5"
 - **8 KB hash tables.** Half the L1d footprint of C lz4 and lz4_flex.
 - **Built-in dictionary training.** `DictTrainer` learns a dictionary from your data. No external tools needed.
 - **Hot-loop friendly.** Epoch-based table reuse skips clearing between calls for small inputs.
-- **`no_std` ready.** Block format works with just `alloc`. Frame format requires `std`.
+- **`no_std` and no-alloc ready.** Block format works without `std` or even `alloc`. Hash tables live on the stack when `alloc` is off (~8 KB per call). Frame format requires `std`.
 
 See [DESIGN.md](DESIGN.md) for how it all works.
 
@@ -59,19 +59,56 @@ assert_eq!(&output[..n], input);
 ```
 
 The `_into` variants write into a caller-provided buffer. The plain variants
-allocate.
+allocate and require the `alloc` feature.
+
+### No-alloc / embedded
+
+All `_into` functions and the `Compressor`/`Decompressor` structs work without
+`alloc`. Hash tables are stack-allocated (~8 KB per compress call).
+
+```toml
+[dependencies]
+lz4rip = { version = "0.5", default-features = false }
+```
+
+```rust
+use lz4rip::block::{compress_into, decompress_into, get_maximum_output_size};
+
+let input = b"Hello people, what's up?";
+let mut compressed = [0u8; 256];
+let n = compress_into(input, &mut compressed).unwrap();
+
+let mut output = [0u8; 64];
+let m = decompress_into(&compressed[..n], &mut output).unwrap();
+assert_eq!(&output[..m], input);
+```
+
+One-shot dictionary compression is also available without `alloc`:
+
+```rust
+use lz4rip::block::{compress_into_with_dict, decompress_into_with_dict, get_maximum_output_size};
+
+let dict = b"shared context bytes...";
+let input = b"context bytes appear in messages";
+let mut compressed = [0u8; 256];
+let n = compress_into_with_dict(input, &mut compressed, dict).unwrap();
+
+let mut output = [0u8; 64];
+let m = decompress_into_with_dict(&compressed[..n], &mut output, dict).unwrap();
+assert_eq!(&output[..m], input);
+```
 
 ### Dictionary compression
 
 Pre-seed the compressor and decompressor with shared context for better ratios
-on small messages.
+on small messages. `Compressor` borrows the dictionary (no heap copy).
 
 ```rust
 use lz4rip::block::{Compressor, Decompressor, get_maximum_output_size};
 
 let dict = b"shared context bytes...";
 let mut comp = Compressor::with_dict(dict);
-let decomp = Decompressor::with_dict(dict);
+let decomp = Decompressor::new(dict);
 
 let input = b"context bytes appear in messages";
 let mut buf = vec![0u8; get_maximum_output_size(input.len())];
@@ -84,6 +121,7 @@ assert_eq!(&output[..], input);
 ### Dictionary training
 
 Build a dictionary from sample data using the built-in COVER trainer.
+Requires the `alloc` feature.
 
 ```rust
 use lz4rip::block::DictTrainer;
@@ -93,7 +131,7 @@ for sample in &samples {
     trainer.add_sample(sample);
 }
 let dict = trainer.train();
-// Use with Compressor::with_dict(&dict) / Decompressor::with_dict(&dict)
+// Use with Compressor::with_dict(&dict) / Decompressor::new(&dict)
 ```
 
 ## Frame format
