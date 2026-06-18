@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-18
+
+### Breaking
+
+- `Decompressor::new(dict)` renamed to `Decompressor::with_dict(dict)`, restoring the v0.5 constructor name. Same rename on `DecompressorRef`.
+
+### Changed
+
+- Chart legend: "lz4rip (safe API, Rust)".
+
 ## [0.7.0] - 2026-06-18
 
 ### Breaking

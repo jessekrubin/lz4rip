@@ -5,7 +5,7 @@ Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with a
 Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
 ```toml
-lz4rip = "0.7"
+lz4rip = "0.8"
 ```
 
 ## Why lz4rip
@@ -68,7 +68,7 @@ without `alloc`. Hash tables are stack-allocated (~8 KB per compress call).
 
 ```toml
 [dependencies]
-lz4rip = { version = "0.7", default-features = false }
+lz4rip = { version = "0.8", default-features = false }
 ```
 
 ```rust
