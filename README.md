@@ -5,7 +5,7 @@ Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with a
 Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
 ```toml
-lz4rip = "0.6"
+lz4rip = "0.7"
 ```
 
 ## Why lz4rip
@@ -63,12 +63,12 @@ allocate and require the `alloc` feature.
 
 ### No-alloc / embedded
 
-All `_into` functions and the `Compressor`/`Decompressor` structs work without
-`alloc`. Hash tables are stack-allocated (~8 KB per compress call).
+All `_into` functions and the `CompressorRef`/`DecompressorRef` structs work
+without `alloc`. Hash tables are stack-allocated (~8 KB per compress call).
 
 ```toml
 [dependencies]
-lz4rip = { version = "0.5", default-features = false }
+lz4rip = { version = "0.7", default-features = false }
 ```
 
 ```rust
@@ -101,7 +101,8 @@ assert_eq!(&output[..m], input);
 ### Dictionary compression
 
 Pre-seed the compressor and decompressor with shared context for better ratios
-on small messages. `Compressor` borrows the dictionary (no heap copy).
+on small messages. `Compressor` clones the dictionary into owned storage.
+For zero-copy, use `CompressorRef` / `DecompressorRef`.
 
 ```rust
 use lz4rip::block::{Compressor, Decompressor, get_maximum_output_size};

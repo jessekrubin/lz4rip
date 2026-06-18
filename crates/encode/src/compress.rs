@@ -250,7 +250,7 @@ pub fn compress_internal<T: HashTable, const USE_DICT: bool, const HAS_OFFSET: b
     }
 }
 
-/// Dual-table compression for `Compressor::with_dict`.
+/// Dual-table compression for `CompressorRef::with_dict`.
 #[inline(never)]
 fn compress_with_dict_table<T: HashTable, S: Sink>(
     input: &[u8],
@@ -487,21 +487,23 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
     compressed
 }
 
-/// A reusable block compressor. Pre-allocates the hash table once and reuses
-/// it across calls.
+/// A reusable block compressor that borrows its dictionary.
 ///
-/// For one-shot compression, use [`compress`] or [`compress_into`] instead.
+/// This is the no-alloc API. With `alloc`, use
+/// [`Compressor`](crate::Compressor) instead.
+///
+/// For one-shot compression, use [`compress_into`] instead.
 ///
 /// # Example
 /// ```
-/// use lz4rip_encode::{Compressor, get_maximum_output_size};
+/// use lz4rip_encode::{CompressorRef, get_maximum_output_size};
 ///
-/// let mut comp = Compressor::new();
+/// let mut comp = CompressorRef::new();
 /// let input = b"hello world, hello world, hello!";
 /// let mut output = vec![0u8; get_maximum_output_size(input.len())];
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
-pub struct Compressor<'a> {
+pub struct CompressorRef<'a> {
     tables: CompressorTables<'a>,
 }
 
@@ -517,24 +519,25 @@ enum CompressorTables<'a> {
     },
 }
 
-impl fmt::Debug for Compressor<'_> {
+impl fmt::Debug for CompressorRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.tables {
-            CompressorTables::Plain { .. } => {
-                f.debug_struct("Compressor").field("dict_len", &0).finish()
-            }
+            CompressorTables::Plain { .. } => f
+                .debug_struct("CompressorRef")
+                .field("dict_len", &0)
+                .finish(),
             CompressorTables::Dict { dict, .. } => f
-                .debug_struct("Compressor")
+                .debug_struct("CompressorRef")
                 .field("dict_len", &dict.len())
                 .finish(),
         }
     }
 }
 
-impl Compressor<'static> {
+impl CompressorRef<'static> {
     /// Create a new compressor without a dictionary.
     pub fn new() -> Self {
-        Compressor {
+        CompressorRef {
             tables: CompressorTables::Plain {
                 table: HashTableU32::new(),
                 stream_offset: 0,
@@ -543,13 +546,13 @@ impl Compressor<'static> {
     }
 }
 
-impl<'a> Compressor<'a> {
+impl<'a> CompressorRef<'a> {
     /// Create a new compressor seeded with an external dictionary.
     ///
     /// If `dict` is shorter than 4 bytes, it is ignored.
     pub fn with_dict(dict: &'a [u8]) -> Self {
         if dict.len() < MINMATCH {
-            return Compressor::new();
+            return CompressorRef::new();
         }
         let trimmed = if dict.len() > WINDOW_SIZE {
             &dict[dict.len() - WINDOW_SIZE..]
@@ -559,7 +562,7 @@ impl<'a> Compressor<'a> {
         let mut pristine = HashTableU32U16::new();
         let mut dict_ref = trimmed;
         init_dict(&mut pristine, &mut dict_ref);
-        Compressor {
+        CompressorRef {
             tables: CompressorTables::Dict {
                 table: HashTableU32U16::new(),
                 pristine,
@@ -648,7 +651,7 @@ fn prepare_plain_table(
     stream_offset: &mut usize,
     input_len: usize,
 ) -> usize {
-    if input_len > Compressor::EPOCH_THRESHOLD {
+    if input_len > CompressorRef::EPOCH_THRESHOLD {
         table.clear();
         *stream_offset = input_len + MAX_DISTANCE + 1;
         return 0;
@@ -666,7 +669,7 @@ fn prepare_plain_table(
     offset
 }
 
-impl Default for Compressor<'static> {
+impl Default for CompressorRef<'static> {
     fn default() -> Self {
         Self::new()
     }

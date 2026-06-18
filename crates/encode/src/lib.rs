@@ -11,6 +11,8 @@ extern crate alloc;
 #[forbid(unsafe_code)]
 mod compress;
 #[cfg(feature = "alloc")]
+mod compressor;
+#[cfg(feature = "alloc")]
 #[forbid(unsafe_code)]
 mod dict;
 pub(crate) mod hashtable;
@@ -18,7 +20,11 @@ mod verified_sink;
 
 #[cfg(feature = "alloc")]
 pub use compress::compress;
-pub use compress::{compress_into, compress_into_with_dict, get_maximum_output_size, Compressor};
+pub use compress::{
+    compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef,
+};
+#[cfg(feature = "alloc")]
+pub use compressor::Compressor;
 #[cfg(feature = "alloc")]
 pub use dict::DictTrainer;
 pub use lz4rip_core::CompressError;
