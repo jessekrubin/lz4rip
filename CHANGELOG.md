@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-18
+
+### Breaking
+
+- `Compressor<'a>` renamed to `CompressorRef<'a>` (no-alloc, borrows dictionary).
+- `Decompressor<'a>` renamed to `DecompressorRef<'a>` (no-alloc, borrows dictionary).
+
+### Added
+
+- `Compressor` (no lifetime parameter, requires `alloc`): owns dictionary as `Vec<u8>`, restoring the v0.5 ergonomic API. Wraps `CompressorRef` internally with one contained `unsafe` for the self-referential borrow.
+- `Decompressor` (no lifetime parameter, requires `alloc`): owns dictionary as `Vec<u8>`, delegates to `DecompressorRef` per call. Zero `unsafe`.
+
 ## [0.6.0] - 2026-06-18
 
 ### Breaking

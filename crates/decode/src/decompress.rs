@@ -342,26 +342,29 @@ pub fn decompress_into_with_dict(
     decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), dict)
 }
 
-/// A block decompressor seeded with an external dictionary.
+/// A block decompressor that borrows its dictionary.
+///
+/// This is the no-alloc API. With `alloc`, use
+/// [`Decompressor`](crate::Decompressor) instead.
 ///
 /// When no dictionary is needed, use the free functions [`decompress`] or
 /// [`decompress_into`] instead.
-pub struct Decompressor<'a> {
+pub struct DecompressorRef<'a> {
     dict: &'a [u8],
 }
 
-impl fmt::Debug for Decompressor<'_> {
+impl fmt::Debug for DecompressorRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Decompressor")
+        f.debug_struct("DecompressorRef")
             .field("dict_len", &self.dict.len())
             .finish()
     }
 }
 
-impl<'a> Decompressor<'a> {
+impl<'a> DecompressorRef<'a> {
     /// Create a decompressor seeded with an external dictionary.
     pub fn new(dict: &'a [u8]) -> Self {
-        Decompressor { dict }
+        DecompressorRef { dict }
     }
 
     /// Decompress `input` into a new `Vec<u8>`.
@@ -390,6 +393,59 @@ impl<'a> Decompressor<'a> {
         output: &mut [u8],
     ) -> Result<usize, DecompressError> {
         decompress_internal::<true, _>(input, &mut SliceSink::new(output, 0), self.dict)
+    }
+}
+
+/// A block decompressor that owns its dictionary.
+///
+/// This is the ergonomic API for use with `alloc`. For a no-alloc variant that
+/// borrows the dictionary, see [`DecompressorRef`].
+///
+/// When no dictionary is needed, use the free functions [`decompress`] or
+/// [`decompress_into`] instead.
+#[cfg(feature = "alloc")]
+pub struct Decompressor {
+    dict: Vec<u8>,
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Debug for Decompressor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Decompressor")
+            .field("dict_len", &self.dict.len())
+            .finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Decompressor {
+    /// Create a decompressor seeded with an external dictionary.
+    ///
+    /// The dictionary is cloned into owned storage.
+    pub fn new(dict: &[u8]) -> Self {
+        Decompressor {
+            dict: dict.to_vec(),
+        }
+    }
+
+    /// Decompress `input` into a new `Vec<u8>`.
+    ///
+    /// `uncompressed_size` must be >= the actual decompressed size.
+    pub fn decompress(
+        &self,
+        input: &[u8],
+        uncompressed_size: usize,
+    ) -> Result<Vec<u8>, DecompressError> {
+        DecompressorRef::new(&self.dict).decompress(input, uncompressed_size)
+    }
+
+    /// Decompress `input` into `output`, returning the number of bytes written.
+    pub fn decompress_into(
+        &self,
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, DecompressError> {
+        DecompressorRef::new(&self.dict).decompress_into(input, output)
     }
 }
 
@@ -450,7 +506,7 @@ mod test {
             Err(DecompressError::OffsetOutOfBounds)
         ));
         assert!(matches!(
-            Decompressor::new(&[0_u8; 250])
+            DecompressorRef::new(&[0_u8; 250])
                 .decompress(&[0x0E, 255, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256,),
             Err(DecompressError::OffsetOutOfBounds)
         ));
