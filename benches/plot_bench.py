@@ -27,7 +27,7 @@ COLORS = {
 
 LABELS = {
     "C lz4":             "lz4 (C)",
-    "lz4rip":            "lz4rip (safe Rust)",
+    "lz4rip":            "lz4rip (safe API, Rust)",
     "lz4_flex unsafe":   "lz4_flex (unsafe Rust)",
     "lz4_flex":          "lz4_flex (safe Rust)",
 }
@@ -41,7 +41,7 @@ DICT_COLORS = {
 
 DICT_LABELS = {
     "C lz4 (dict 2K)":   "lz4 (C)",
-    "lz4rip (dict 2K)":  "lz4rip (safe Rust)",
+    "lz4rip (dict 2K)":  "lz4rip (safe API, Rust)",
 }
 
 
