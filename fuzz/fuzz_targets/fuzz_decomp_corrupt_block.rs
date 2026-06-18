@@ -26,7 +26,7 @@ fuzz_target!(|fuzz_data: FuzzData| {
     let result = if dict.is_empty() {
         decompress(input, output_size)
     } else {
-        Decompressor::new(&dict).decompress(input, output_size)
+        Decompressor::with_dict(&dict).decompress(input, output_size)
     };
     if let Ok(decomp) = result {
         for byte in decomp {
@@ -43,7 +43,7 @@ fuzz_target!(|fuzz_data: FuzzData| {
         let result = if dict.is_empty() {
             decompress_into(input, &mut out)
         } else {
-            Decompressor::new(&dict).decompress_into(input, &mut out)
+            Decompressor::with_dict(&dict).decompress_into(input, &mut out)
         };
         if let Ok(len) = result {
             for &byte in &out[..len] {

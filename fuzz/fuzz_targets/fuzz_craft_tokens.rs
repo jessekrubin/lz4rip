@@ -91,6 +91,6 @@ fuzz_target!(|seq: TokenSequence| {
     if seq.dict_size > 0 {
         let dict: Vec<u8> = (0..seq.dict_size).map(|i| (i & 0xFF) as u8).collect();
         let mut out = vec![0u8; output_size];
-        let _ = Decompressor::new(&dict).decompress_into(&block, &mut out);
+        let _ = Decompressor::with_dict(&dict).decompress_into(&block, &mut out);
     }
 });

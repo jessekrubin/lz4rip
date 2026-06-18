@@ -30,7 +30,7 @@ fuzz_target!(|input: Input| {
     let dict = &input.dict[..dict_len];
 
     let mut compressor = Compressor::with_dict(dict);
-    let decompressor = Decompressor::new(dict);
+    let decompressor = Decompressor::with_dict(dict);
 
     let compressed = compressor.compress(&payload);
     let decompressed = decompressor

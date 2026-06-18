@@ -363,7 +363,7 @@ impl fmt::Debug for DecompressorRef<'_> {
 
 impl<'a> DecompressorRef<'a> {
     /// Create a decompressor seeded with an external dictionary.
-    pub fn new(dict: &'a [u8]) -> Self {
+    pub fn with_dict(dict: &'a [u8]) -> Self {
         DecompressorRef { dict }
     }
 
@@ -422,7 +422,7 @@ impl Decompressor {
     /// Create a decompressor seeded with an external dictionary.
     ///
     /// The dictionary is cloned into owned storage.
-    pub fn new(dict: &[u8]) -> Self {
+    pub fn with_dict(dict: &[u8]) -> Self {
         Decompressor {
             dict: dict.to_vec(),
         }
@@ -436,7 +436,7 @@ impl Decompressor {
         input: &[u8],
         uncompressed_size: usize,
     ) -> Result<Vec<u8>, DecompressError> {
-        DecompressorRef::new(&self.dict).decompress(input, uncompressed_size)
+        DecompressorRef::with_dict(&self.dict).decompress(input, uncompressed_size)
     }
 
     /// Decompress `input` into `output`, returning the number of bytes written.
@@ -445,7 +445,7 @@ impl Decompressor {
         input: &[u8],
         output: &mut [u8],
     ) -> Result<usize, DecompressError> {
-        DecompressorRef::new(&self.dict).decompress_into(input, output)
+        DecompressorRef::with_dict(&self.dict).decompress_into(input, output)
     }
 }
 
@@ -506,7 +506,7 @@ mod test {
             Err(DecompressError::OffsetOutOfBounds)
         ));
         assert!(matches!(
-            DecompressorRef::new(&[0_u8; 250])
+            DecompressorRef::with_dict(&[0_u8; 250])
                 .decompress(&[0x0E, 255, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256,),
             Err(DecompressError::OffsetOutOfBounds)
         ));

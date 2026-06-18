@@ -486,7 +486,7 @@ fn test_decomp(data: &[u8]) {
         return;
     }
     let _ = decompress(&data[4..], size);
-    let _ = Decompressor::new(data).decompress(&data[4..], size);
+    let _ = Decompressor::with_dict(data).decompress(&data[4..], size);
 }
 
 #[test]
@@ -578,7 +578,7 @@ fn compressor_decompressor_debug() {
     let dbg = format!("{comp:?}");
     assert!(dbg.contains("Compressor"), "{dbg}");
 
-    let decomp = Decompressor::new(b"test");
+    let decomp = Decompressor::with_dict(b"test");
     let dbg = format!("{decomp:?}");
     assert!(dbg.contains("Decompressor"), "{dbg}");
 }
@@ -839,7 +839,7 @@ mod test_dict_corpus {
 
         let mut comp = Compressor::with_dict(dict);
         let compressed = comp.compress(input);
-        let decomp = Decompressor::new(dict);
+        let decomp = Decompressor::with_dict(dict);
         let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
         assert_eq!(input, &decompressed[..]);
 

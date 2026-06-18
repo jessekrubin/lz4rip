@@ -24,7 +24,7 @@ fuzz_target!(|fuzz_data: FuzzData| {
         if dict.is_empty() {
             decompress_into(input, output)
         } else {
-            Decompressor::new(dict).decompress_into(input, output)
+            Decompressor::with_dict(dict).decompress_into(input, output)
         }
     }
 

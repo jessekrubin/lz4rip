@@ -129,7 +129,7 @@ mod tests {
         let compressed = comp.compress(input);
         assert!(compressed.len() < lz4rip_encode::compress(input).len());
 
-        let decomp = lz4rip_decode::Decompressor::new(dict);
+        let decomp = lz4rip_decode::Decompressor::with_dict(dict);
         let uncompressed = decomp.decompress(&compressed, input.len()).unwrap();
         assert_eq!(input, &uncompressed[..]);
     }
@@ -153,7 +153,7 @@ mod tests {
         assert!(!dict.is_empty());
 
         let mut compressor = lz4rip_encode::Compressor::with_dict(&dict);
-        let decompressor = lz4rip_decode::Decompressor::new(&dict);
+        let decompressor = lz4rip_decode::Decompressor::with_dict(&dict);
 
         let test_msg = json_msg(9999);
         let compressed_with = compressor.compress(&test_msg);
