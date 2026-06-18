@@ -26,7 +26,7 @@ pub trait Sink {
     fn output_mut_with_pos(&mut self) -> (&mut [u8], &mut usize);
 }
 
-/// SliceSink writes into a preallocated `&mut [u8]`.
+/// `SliceSink` writes into a preallocated `&mut [u8]`.
 ///
 /// # Handling of Capacity
 /// Extend methods will panic if there's insufficient capacity left in the Sink.
@@ -69,7 +69,7 @@ impl Sink for SliceSink<'_> {
 
     #[inline]
     fn extend_from_slice(&mut self, data: &[u8]) {
-        self.extend_from_slice_wild(data, data.len())
+        self.extend_from_slice_wild(data, data.len());
     }
 
     #[inline]

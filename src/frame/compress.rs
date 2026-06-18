@@ -383,11 +383,17 @@ impl<W: io::Write> Drop for AutoFinishEncoder<W> {
 
 impl<W: Write> Write for AutoFinishEncoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.encoder.as_mut().unwrap().write(buf)
+        self.encoder
+            .as_mut()
+            .ok_or_else(|| io::Error::other("encoder already finished"))
+            .and_then(|enc| enc.write(buf))
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.encoder.as_mut().unwrap().flush()
+        self.encoder
+            .as_mut()
+            .ok_or_else(|| io::Error::other("encoder already finished"))
+            .and_then(|enc| enc.flush())
     }
 }
 

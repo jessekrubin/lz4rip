@@ -97,13 +97,13 @@ pub(crate) fn get_batch_arch(input: &[u8], n: usize) -> usize {
 }
 
 // Knuth's multiplicative hash constant (golden ratio * 2^32).
-const KNUTH: u32 = 2654435761;
+const KNUTH: u32 = 2_654_435_761;
 
 #[cfg(target_pointer_width = "64")]
 const PRIME5: usize = if cfg!(target_endian = "little") {
-    889523592379
+    889_523_592_379
 } else {
-    11400714785074694791
+    11_400_714_785_074_694_791
 };
 
 /// Hash table trait for LZ4 match finding.
@@ -232,7 +232,6 @@ impl HashTableU32 {
 
     /// Subtract `offset` from all entries (saturating).
     #[cold]
-    #[allow(dead_code)]
     pub fn reposition(&mut self, offset: u32) {
         for i in self.dict.iter_mut() {
             *i = i.saturating_sub(offset);

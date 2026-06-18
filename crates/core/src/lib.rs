@@ -25,7 +25,7 @@ pub const MFLIMIT: usize = 12;
 /// Last 5 bytes are always literals.
 pub const LAST_LITERALS: usize = 5;
 
-/// LAST_LITERALS + 1: extra byte for register-width reads near end.
+/// `LAST_LITERALS` + 1: extra byte for register-width reads near end.
 pub const END_OFFSET: usize = LAST_LITERALS + 1;
 
 /// Minimum compressible block length: MFLIMIT + 1 for the token.
