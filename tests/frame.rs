@@ -1,0 +1,189 @@
+#![cfg(feature = "frame")]
+
+mod common;
+
+use common::*;
+use lz4rip::frame::BlockSize;
+use std::io::{Read, Write};
+
+#[test]
+fn concatenated() {
+    let mut enc = lz4rip::frame::FrameEncoder::new(Vec::new());
+    enc.write_all(COMPRESSION1K).unwrap();
+    enc.try_finish().unwrap();
+    enc.write_all(COMPRESSION34K).unwrap();
+    let compressed = enc.finish().unwrap();
+
+    let mut dec = lz4rip::frame::FrameDecoder::new(&*compressed);
+    let mut uncompressed = Vec::new();
+    dec.read_to_end(&mut uncompressed).unwrap();
+    assert_eq!(&*uncompressed, COMPRESSION1K);
+    uncompressed.clear();
+    dec.read_to_end(&mut uncompressed).unwrap();
+    assert_eq!(&*uncompressed, COMPRESSION34K);
+}
+
+#[test]
+fn checksums() {
+    for &input in &[COMPRESSION34K, COMPRESSION66JSON] {
+        // Block checksum
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.block_checksums = true;
+        let mut compressed = lz4rip_frame_compress_with(frame_info, input).unwrap();
+        let uncompressed = lz4rip_frame_decompress(&compressed).unwrap();
+        assert_eq!(uncompressed, input);
+        // Corrupt last block checksum (8th to 4th last bytes).
+        let compressed_len = compressed.len();
+        compressed[compressed_len - 5] ^= 0xFF;
+        match lz4rip_frame_decompress(&compressed) {
+            Err(lz4rip::frame::Error::BlockChecksumError) => (),
+            r => panic!("{:?}", r),
+        }
+
+        // Content checksum
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.content_checksum = true;
+        let mut compressed = lz4rip_frame_compress_with(frame_info, input).unwrap();
+        let uncompressed = lz4rip_frame_decompress(&compressed).unwrap();
+        assert_eq!(uncompressed, input);
+        // Corrupt content checksum (last 4 bytes).
+        let compressed_len = compressed.len();
+        compressed[compressed_len - 1] ^= 0xFF;
+        match lz4rip_frame_decompress(&compressed) {
+            Err(lz4rip::frame::Error::ContentChecksumError) => (),
+            r => panic!("{:?}", r),
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn block_size() {
+    let mut last_compressed_len = usize::MAX;
+    for block_size in &[
+        BlockSize::Max64KB,
+        BlockSize::Max256KB,
+        BlockSize::Max1MB,
+        BlockSize::Max4MB,
+    ] {
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.block_size = *block_size;
+        let compressed = lz4rip_frame_compress_with(frame_info, &DICKENS).unwrap();
+
+        let uncompressed = lz4rip_frame_decompress(&compressed).unwrap();
+        assert_eq!(uncompressed, *DICKENS);
+
+        // For large input (dickens, 10 MB), strictly better compression with larger block size.
+        assert!(compressed.len() < last_compressed_len);
+        last_compressed_len = compressed.len();
+    }
+}
+
+#[test]
+fn content_size() {
+    let mut frame_info = lz4rip::frame::FrameInfo::new();
+    frame_info.content_size = Some(COMPRESSION1K.len() as u64);
+    let mut compressed = lz4rip_frame_compress_with(frame_info, COMPRESSION1K).unwrap();
+
+    let uncompressed = lz4rip_frame_decompress(&compressed).unwrap();
+    assert_eq!(uncompressed, COMPRESSION1K);
+
+    // Corrupt the content size in the header.
+    {
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.content_size = Some(3);
+        let dummy_compressed = lz4rip_frame_compress_with(frame_info, b"123").unwrap();
+        // 15 (7 + 8) is the header size plus content size field.
+        compressed[..15].copy_from_slice(&dummy_compressed[..15]);
+    }
+    match lz4rip_frame_decompress(&compressed) {
+        Err(lz4rip::frame::Error::ContentLengthError { expected, actual }) => {
+            assert_eq!(expected, 3);
+            assert_eq!(actual, 725);
+        }
+        r => panic!("{:?}", r),
+    }
+}
+
+#[test]
+fn dict_round_trip() {
+    let dict = b"JSON schema v1 field name= value= type= len= ".repeat(4);
+    let dict_id: u32 = 0xDEADBEEF;
+    let msg = b"JSON schema v1 field name=hello value=world type=str len=5";
+
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, dict_id);
+    enc.write_all(msg).unwrap();
+    let compressed = enc.finish().unwrap();
+
+    assert_eq!(&compressed[..4], &[0x04, 0x22, 0x4d, 0x18]);
+
+    let mut dec = lz4rip::frame::FrameDecoder::with_dictionary(&*compressed, &dict, dict_id);
+    let mut out = Vec::new();
+    dec.read_to_end(&mut out).unwrap();
+    assert_eq!(out, msg);
+}
+
+#[test]
+fn dict_id_mismatch_fails() {
+    let dict = b"prefix AAA ".repeat(8);
+    let msg = b"prefix AAA tail";
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 0xAAAA_AAAA);
+    enc.write_all(msg).unwrap();
+    let compressed = enc.finish().unwrap();
+
+    let mut dec = lz4rip::frame::FrameDecoder::with_dictionary(&*compressed, &dict, 0xBBBB_BBBB);
+    let mut out = Vec::new();
+    let err = dec.read_to_end(&mut out).unwrap_err();
+    let inner = err
+        .into_inner()
+        .and_then(|e| e.downcast::<lz4rip::frame::Error>().ok());
+    match inner.as_deref() {
+        Some(lz4rip::frame::Error::DictIdMismatch { .. }) => {}
+        other => panic!("expected DictIdMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn dict_required_when_frame_declares_one() {
+    let dict = b"common ".repeat(8);
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 1);
+    enc.write_all(b"common payload").unwrap();
+    let compressed = enc.finish().unwrap();
+
+    let mut dec = lz4rip::frame::FrameDecoder::new(&*compressed);
+    let mut out = Vec::new();
+    let err = dec.read_to_end(&mut out).unwrap_err();
+    let inner = err
+        .into_inner()
+        .and_then(|e| e.downcast::<lz4rip::frame::Error>().ok());
+    assert!(matches!(
+        inner.as_deref(),
+        Some(lz4rip::frame::Error::DictionaryNotSupported)
+    ));
+}
+
+#[test]
+fn truncated_standard_frame_is_error() {
+    let frame_info = lz4rip::frame::FrameInfo::new();
+    let compressed = lz4rip_frame_compress_with(frame_info, COMPRESSION34K).unwrap();
+    let truncated = &compressed[..compressed.len() - 4];
+    let err = lz4rip_frame_decompress(truncated).unwrap_err();
+    assert!(
+        matches!(err, lz4rip::frame::Error::IoError(_)),
+        "expected IoError(UnexpectedEof), got {err:?}"
+    );
+}
+
+#[test]
+fn try_finish_idempotent() {
+    let mut enc = lz4rip::frame::FrameEncoder::new(Vec::new());
+    std::io::Write::write_all(&mut enc, b"hello").unwrap();
+    enc.try_finish().unwrap();
+    let first = enc.get_ref().clone();
+    enc.try_finish().unwrap();
+    assert_eq!(
+        enc.get_ref(),
+        &first,
+        "double try_finish must not append bytes"
+    );
+}

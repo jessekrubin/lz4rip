@@ -31,11 +31,7 @@ pub fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize, Decomp
     Ok(n)
 }
 
-const LITERAL_LEN_MASK: u8 = 0b11110000;
-
-#[cfg(test)]
-#[allow(dead_code)]
-const MATCH_LEN_MASK: u8 = 0b00001111;
+const LITERAL_LEN_MASK: u8 = 0b1111_0000;
 
 #[test]
 fn check_token() {
@@ -75,7 +71,7 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
 
     if USE_DICT {
         safe_output_pos = safe_output_pos.saturating_sub(17);
-    };
+    }
 
     loop {
         let in_safe_region = input_pos < safe_input_pos;

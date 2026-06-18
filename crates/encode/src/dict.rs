@@ -92,7 +92,7 @@ const FREQ_MASK: usize = FREQ_SIZE - 1;
 #[inline(always)]
 fn hash_dmer(data: &[u8]) -> usize {
     let v = u64::from_le_bytes(data[..8].try_into().unwrap());
-    v.wrapping_mul(0x9E3779B97F4A7C15) as usize
+    v.wrapping_mul(0x9E37_79B9_7F4A_7C15) as usize
 }
 
 fn cover_select(samples: &[&[u8]], dict_size: usize) -> Vec<u8> {

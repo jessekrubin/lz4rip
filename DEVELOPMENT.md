@@ -54,10 +54,16 @@ LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py 
 
 ## Miri
 
-Checks unsafe code for undefined behavior (Stacked Borrows violations, use-after-free, etc.). Run on unit tests only; integration tests include 10 MB corpus data which is too slow under interpretation.
+Checks unsafe code for undefined behavior (Stacked Borrows violations, use-after-free, etc.).
 
 ```sh
+# unit tests only (~2 min)
 MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test --lib
+
+# unit + integration tests (~20 min)
+# C FFI tests (cpp_compat.rs) are excluded via #![cfg(not(miri))].
+# Large corpus tests (dickens, hdfs, proptest) are excluded via #[cfg_attr(miri, ignore)].
+MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test
 ```
 
 `-Zmiri-disable-isolation` is needed because proptest calls `getcwd`.

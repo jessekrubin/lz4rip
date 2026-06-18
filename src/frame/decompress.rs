@@ -176,7 +176,10 @@ impl<R: io::Read> FrameDecoder<R> {
 
     fn read_block(&mut self) -> io::Result<usize> {
         debug_assert_eq!(self.dst_start, self.dst_end);
-        let frame_info = self.current_frame_info.as_ref().unwrap();
+        let frame_info = self
+            .current_frame_info
+            .as_ref()
+            .ok_or_else(|| io::Error::other("no frame header has been read"))?;
 
         let max_block_size = frame_info.block_size.get_size();
         if frame_info.block_mode == BlockMode::Linked {

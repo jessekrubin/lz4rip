@@ -443,6 +443,7 @@ fn init_dict<T: HashTable>(dict: &mut T, dict_data: &mut &[u8]) {
 
 /// Returns the maximum output size of the compressed data.
 /// Can be used to preallocate capacity on the output vector
+#[must_use]
 #[inline]
 pub const fn get_maximum_output_size(input_len: usize) -> usize {
     16 + 4 + (input_len as u64 * 110 / 100) as usize
@@ -471,6 +472,7 @@ pub fn compress_into_with_dict(
 }
 
 /// Compress all bytes of `input`.
+#[must_use]
 #[cfg(feature = "alloc")]
 #[inline]
 pub fn compress(input: &[u8]) -> Vec<u8> {
@@ -536,6 +538,7 @@ impl fmt::Debug for CompressorRef<'_> {
 
 impl CompressorRef<'static> {
     /// Create a new compressor without a dictionary.
+    #[must_use]
     pub fn new() -> Self {
         CompressorRef {
             tables: CompressorTables::Plain {
@@ -550,6 +553,7 @@ impl<'a> CompressorRef<'a> {
     /// Create a new compressor seeded with an external dictionary.
     ///
     /// If `dict` is shorter than 4 bytes, it is ignored.
+    #[must_use]
     pub fn with_dict(dict: &'a [u8]) -> Self {
         if dict.len() < MINMATCH {
             return CompressorRef::new();

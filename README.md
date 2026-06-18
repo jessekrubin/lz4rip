@@ -4,10 +4,6 @@ Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with a
 
 Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
-```toml
-lz4rip = "0.8"
-```
-
 ## Why lz4rip
 
 - **C lz4 speed, safe by construction.** Unsafe is isolated to two files for raw memory ops. See [SAFETY.md](SAFETY.md).
