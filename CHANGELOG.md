@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-18
+
+### Fixed
+
+- `AutoFinishEncoder::write`/`flush` now return `io::Error` instead of panicking when called after `finish()`.
+- `FrameDecoder::read_block` now returns `io::Error` instead of panicking when no frame header has been read.
+- Removed dead code: unused `MATCH_LEN_MASK` constant, stale `#[allow(dead_code)]` on `HashTableU32::reposition`.
+- Fixed clippy pedantic lints: unreadable numeric literals, uninlined format args, unnecessary semicolon, `doc_markdown` backticks.
+
+### Added
+
+- `#[must_use]` on `compress()`, `get_maximum_output_size()`, `CompressorRef::new()`, `CompressorRef::with_dict()`.
+
 ## [0.8.0] - 2026-06-18
 
 ### Breaking
