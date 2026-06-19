@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-19
+
+- Removed `doc/charts/**/*.svg` from the facade crate's `include` list. Charts use absolute GitHub URLs and were dead weight (~89 KB).
+- Added `README.md` to `lz4rip-core`, `lz4rip-encode`, and `lz4rip-decode` subcrates.
+
 ## [0.8.2] - 2026-06-19
 
 ### Fixed
