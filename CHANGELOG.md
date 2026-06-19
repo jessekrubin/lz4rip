@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-19
+
+### Fixed
+
+- **Soundness**: `VerifiedSliceSink` was `#[doc(hidden)] pub` with a safe constructor, but its `Sink` methods used `get_unchecked_mut`. Safe code could construct one and trigger OOB writes. Removed the pub re-export; the frame module now uses `SliceSink` instead.
+- **Soundness**: `HashTable::get_at`/`put_at` were safe trait methods using `get_unchecked` on fixed-size arrays. `HashTableU32` was `#[doc(hidden)] pub`, so external code could call `get_at(999999)` and read OOB. Switched to checked indexing.
+- **Soundness**: `HashTable::get_hash_at_unchecked` did unchecked pointer reads from safe code. Replaced per-type unsafe implementations with a default impl that delegates to the checked `get_hash_at`.
+- Hardened `count_same_bytes_unchecked`: replaced `source.len() - candidate` with `saturating_sub` to prevent wrapping on precondition violation.
+- Expanded safety comment on `Compressor` to document all five invariants for the self-referential `from_raw_parts`.
+
 ## [0.8.1] - 2026-06-18
 
 ### Fixed
