@@ -1,11 +1,12 @@
 [package]
 name = "lz4rip-core"
 description = "Shared types and constants for lz4rip encode/decode crates."
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/paddor/lz4rip"
+readme = "README.md"
 
 [features]
 default = ["std"]
