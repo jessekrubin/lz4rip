@@ -34,5 +34,3 @@ pub use lz4rip_core::CompressError;
 pub use compress::{compress_internal, compress_into_sink_with_dict, write_integer};
 #[doc(hidden)]
 pub use hashtable::{HashTable, HashTableU32};
-#[doc(hidden)]
-pub use verified_sink::VerifiedSliceSink;

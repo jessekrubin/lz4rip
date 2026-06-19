@@ -117,7 +117,12 @@ pub trait HashTable {
     /// Hash `input[pos..]` with bounds checking.
     fn get_hash_at(input: &[u8], pos: usize) -> usize;
     /// Hash `input[pos..]` without bounds checking.
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize;
+    ///
+    /// Default delegates to the checked [`get_hash_at`](Self::get_hash_at).
+    #[inline]
+    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+        Self::get_hash_at(input, pos)
+    }
 }
 
 const HASHTABLE_SIZE_U32: usize = 2 * 1024;
@@ -155,15 +160,11 @@ impl HashTableU32U16 {
 impl HashTable for HashTableU32U16 {
     #[inline]
     fn get_at(&self, idx: usize) -> usize {
-        debug_assert!(idx < HASHTABLE_SIZE_U16);
-        unsafe { *self.dict.get_unchecked(idx) as usize }
+        self.dict[idx] as usize
     }
     #[inline]
     fn put_at(&mut self, idx: usize, val: usize) {
-        debug_assert!(idx < HASHTABLE_SIZE_U16);
-        unsafe {
-            *self.dict.get_unchecked_mut(idx) = val as u16;
-        }
+        self.dict[idx] = val as u16;
     }
     #[inline]
     fn clear(&mut self) {
@@ -179,20 +180,6 @@ impl HashTable for HashTableU32U16 {
     #[cfg(target_pointer_width = "32")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
-        (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U16.ilog2())) as usize
-    }
-    #[inline]
-    #[cfg(target_pointer_width = "64")]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
-        debug_assert!(pos + 8 <= input.len());
-        let batch = unsafe { (input.as_ptr().add(pos) as *const usize).read_unaligned() };
-        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
-    }
-    #[inline]
-    #[cfg(target_pointer_width = "32")]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
-        debug_assert!(pos + 4 <= input.len());
-        let batch = unsafe { (input.as_ptr().add(pos) as *const u32).read_unaligned() };
         (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U16.ilog2())) as usize
     }
 }
@@ -241,15 +228,11 @@ impl HashTableU32 {
 impl HashTable for HashTableU32 {
     #[inline]
     fn get_at(&self, idx: usize) -> usize {
-        debug_assert!(idx < HASHTABLE_SIZE_U32);
-        unsafe { *self.dict.get_unchecked(idx) as usize }
+        self.dict[idx] as usize
     }
     #[inline]
     fn put_at(&mut self, idx: usize, val: usize) {
-        debug_assert!(idx < HASHTABLE_SIZE_U32);
-        unsafe {
-            *self.dict.get_unchecked_mut(idx) = val as u32;
-        }
+        self.dict[idx] = val as u32;
     }
     #[inline]
     fn clear(&mut self) {
@@ -270,25 +253,6 @@ impl HashTable for HashTableU32 {
     #[cfg(target_pointer_width = "32")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
-        (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
-    }
-    #[inline]
-    #[cfg(target_pointer_width = "64")]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
-        if U32_HASH_BYTES == 5 {
-            debug_assert!(pos + 8 <= input.len());
-            let batch = unsafe { (input.as_ptr().add(pos) as *const usize).read_unaligned() };
-            (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U32.ilog2() as usize)
-        } else {
-            let batch = get_batch_unchecked(input, pos);
-            (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
-        }
-    }
-    #[inline]
-    #[cfg(target_pointer_width = "32")]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
-        debug_assert!(pos + 4 <= input.len());
-        let batch = unsafe { (input.as_ptr().add(pos) as *const u32).read_unaligned() };
         (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
     }
 }
