@@ -5,10 +5,10 @@ use std::{
 };
 use twox_hash::XxHash32;
 
-use lz4rip_core::WINDOW_SIZE;
+use lz4rip_core::{SliceSink, WINDOW_SIZE};
 use lz4rip_encode::{
     compress_internal, compress_into_sink_with_dict, get_maximum_output_size, HashTable,
-    HashTableU32, VerifiedSliceSink,
+    HashTableU32,
 };
 
 use super::Error;
@@ -22,9 +22,9 @@ fn vec_sink_for_compression(
     offset: usize,
     pos: usize,
     required_capacity: usize,
-) -> VerifiedSliceSink<'_> {
+) -> SliceSink<'_> {
     vec.resize(offset + required_capacity, 0);
-    VerifiedSliceSink::new(&mut vec[offset..], pos)
+    SliceSink::new(&mut vec[offset..], pos)
 }
 
 /// A writer for compressing a LZ4 stream.

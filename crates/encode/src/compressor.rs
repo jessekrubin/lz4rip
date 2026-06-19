@@ -23,14 +23,17 @@ use lz4rip_core::CompressError;
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
 pub struct Compressor {
-    // SAFETY: `inner` is declared before `dict` so it is dropped first.
-    // The `CompressorRef` may hold a `&[u8]` pointing into `dict`'s heap buffer.
-    // This is sound because:
-    // - `dict` is private and never reallocated after construction
-    // - `inner` is dropped before `dict` (field declaration order)
-    // - `CompressorRef` has no Drop impl that accesses the slice
+    // SAFETY invariants (self-referential struct):
+    //   `inner` may hold a `&[u8]` fabricated via `from_raw_parts` pointing
+    //   into `dict`'s heap buffer. Sound because:
+    //   1. `inner` is declared before `dict` → dropped first (Rust field order).
+    //   2. `dict` is private and never reallocated after construction.
+    //   3. `CompressorRef` has no Drop impl that accesses the slice.
+    //   4. No Clone/Copy impl exists. Cloning would copy the Vec (new alloc)
+    //      but `inner` would still point at the original buffer → UB on drop.
+    //   5. No method exposes `inner` by value or mutates `dict`.
     inner: CompressorRef<'static>,
-    #[allow(dead_code)] // Backing store for the slice in `inner`.
+    #[allow(dead_code)]
     dict: Vec<u8>,
 }
 
