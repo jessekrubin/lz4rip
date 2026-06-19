@@ -3,10 +3,10 @@
 ## Unsafe boundary
 
 All compression and decompression logic is `#[forbid(unsafe_code)]`. The remaining
-unsafe (~20 blocks in 2 internal modules) performs unchecked memory copies whose
-bounds are proven by safe-region margins computed in the algorithm code. No `unsafe`
-is exposed in the public API. See [DESIGN.md](DESIGN.md) for details on the
-unsafe boundary and safe-region margin computation.
+unsafe (16 blocks in 4 internal modules across 2 crates) performs unchecked memory
+copies whose bounds are proven by safe-region margins computed in the algorithm code.
+No `unsafe` is exposed in the public API. See [DESIGN.md](DESIGN.md) for details on
+the unsafe boundary and safe-region margin computation.
 
 ## Why Rust matters here
 

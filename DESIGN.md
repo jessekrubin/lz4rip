@@ -45,19 +45,23 @@ Consistent 8 KB L1d footprint. Half the 16 KB that C lz4 (`LZ4_hash4`) and lz4_f
 
 `Compressor` without dict uses epoch-based table reuse for inputs up to 8 KB: instead of clearing the hash table between calls, it advances a stream offset so stale entries fall outside `MAX_DISTANCE` and are rejected by the distance check.
 
-Selection happens at the call site in `compress_into_sink_with_dict` in `compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
+Selection happens at the call site in `compress_into_sink_with_dict` in `crates/encode/src/compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
 
 ## 5-byte hash
 
-C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative constant. lz4rip reads 5 bytes (via an 8-byte native-endian load, shifted) and hashes with a 64-bit PRIME5 constant. The extra byte reduces collisions across 2K-4K entry tables.
+On 64-bit targets, C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative constant. lz4rip reads 5 bytes (via an 8-byte native-endian load, shifted) and hashes with a 64-bit PRIME5 constant. The extra byte reduces collisions across 2K-4K entry tables.
 
-The PRIME5 constant is endianness-aware: different values for little-endian and big-endian targets in `hashtable.rs`, since the hash input comes from native-endian reads.
+The PRIME5 constant is endianness-aware: different values for little-endian and big-endian targets in `crates/encode/src/hashtable.rs`, since the hash input comes from native-endian reads.
 
 Hash shifts are derived from the table size: `>> (64 - ilog2(HASHTABLE_SIZE))`. `HashTableU32U16` uses `>> 52` (4K entries), `HashTableU32` uses `>> 53` (2K entries).
 
+On 32-bit targets, both hash tables fall back to a 4-byte KNUTH multiplicative hash, matching C lz4's approach.
+
 ## Compile-time specialization
 
-`compress_internal` in `compress.rs` is generic over four axes:
+Two separate `#[inline(never)]` compression hot loops in `crates/encode/src/compress.rs`:
+
+`compress_internal` handles single-table paths (free-function API and `CompressorRef` without dict). Generic over four axes:
 
 | Parameter | Variants | Effect |
 |---|---|---|
@@ -66,9 +70,11 @@ Hash shifts are derived from the table size: `>> (64 - ilog2(HASHTABLE_SIZE))`. 
 | `HAS_OFFSET: bool` | true, false | Offset arithmetic for dict positions |
 | `S: Sink` | `SliceSink`, `VerifiedSliceSink` | Bounds-checked vs pre-verified writes |
 
-When `USE_DICT=false`, all dictionary code is dead and eliminated by LLVM. When `HAS_OFFSET=false`, offset is a compile-time zero. The function is `#[inline(never)]` so LLVM specializes each call site independently without excessive code duplication.
+When `USE_DICT=false`, all dictionary code is dead and eliminated by LLVM. When `HAS_OFFSET=false`, offset is a compile-time zero. LLVM specializes each call site independently without excessive code duplication.
 
-`decompress_internal` in `decompress.rs` is similarly generic over `USE_DICT` and sink type, with a fast path (unchecked reads in safe region) and slow path (bounds-checked near buffer end).
+`compress_with_dict_table` handles the dual-table dict path (`CompressorRef::with_dict`). Generic over `T: HashTable` and `S: Sink`. Takes both a cleared main table and a read-only pristine table, probing the pristine table on main-table miss.
+
+`decompress_internal` in `crates/decode/src/decompress.rs` is generic over `USE_DICT: bool` and `S: Sink` (only `SliceSink` in practice). Fast path: unchecked reads via `primitives.rs` in the safe region. Slow path: bounds-checked near buffer end.
 
 ## Forward hashing
 
@@ -82,12 +88,14 @@ C lz4 uses the same technique. lz4_flex does not.
 
 ## Unsafe boundary
 
-All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in two internal modules:
+All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in four internal modules across two crates (16 blocks total):
 
-- `hashtable.rs`: unchecked memory reads (`read_u16_unchecked`, `get_batch_unchecked`, `read_byte_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`, `count_same_bytes_unchecked`. Each has `debug_assert` guards on bounds.
-- `verified_sink.rs`: `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
+- `crates/encode/src/hashtable.rs` (2 blocks): `count_same_bytes_unchecked`, `get_batch_unchecked`. Each has `debug_assert` guards on bounds.
+- `crates/encode/src/verified_sink.rs` (2 blocks): `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
+- `crates/encode/src/compressor.rs` (1 block): `from_raw_parts` extending the dict slice lifetime for the self-referential `Compressor` wrapper.
+- `crates/decode/src/primitives.rs` (11 blocks): unchecked memory reads (`read_byte_unchecked`, `read_u16_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`. Each has `debug_assert` guards on bounds.
 
-The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
+The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies in `primitives.rs` are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
 
 ## Dictionary compression
 
@@ -96,6 +104,12 @@ Dictionary initialization in `init_dict` hashes every 3rd byte of the dictionary
 `Compressor::with_dict` hashes the dictionary once into a read-only `HashTableU32U16` (4 KB). Each `compress_into` call clears the 4 KB main table and probes the pristine table on miss. The `Compressor` is structured as a `Plain`/`Dict` enum so each variant holds only the tables it needs.
 
 Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB.
+
+## Crate split
+
+The workspace has four crates: `lz4rip` (facade, re-exports + frame format), `lz4rip-core` (shared types: `Sink`, `SliceSink`, `fastcpy`, error types), `lz4rip-encode` (block compression), `lz4rip-decode` (block decompression).
+
+Encoding and decoding are in separate crates so LLVM compiles them in separate codegen units. This eliminates a class of LTO-induced regressions where dead code in one path shifts register allocation in the other, causing measurable throughput changes (1.8x observed before the split). The facade crate re-exports the public API so downstream users see a single `lz4rip` dependency.
 
 ## Scope
 
