@@ -17,7 +17,7 @@ pub(crate) fn count_same_bytes_unchecked(
 ) -> usize {
     let max_input = input.len().saturating_sub(*cur + end_offset);
     debug_assert!(candidate <= source.len());
-    let max_cand = source.len() - candidate;
+    let max_cand = source.len().saturating_sub(candidate);
     let input_end = *cur + max_input.min(max_cand);
     let start = *cur;
 
