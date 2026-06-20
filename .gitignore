@@ -1,3 +1,4 @@
+.DS_Store
 __pycache__/
 /target
 benchmarks/target
@@ -10,4 +11,3 @@ Session.vim
 /sweep_bins/
 /sweep_results.json
 *.sweep_bak
-doc/charts/**/*.json

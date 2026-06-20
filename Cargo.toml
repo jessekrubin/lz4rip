@@ -4,8 +4,8 @@ resolver = "2"
 
 [package]
 name = "lz4rip"
-description = "Rust LZ4 compression. Fast, with encapsulated unsafe."
-version = "0.8.3"
+description = "Fast, memory-safe Rust implementation of LZ4 compression with built-in dictionary training and no-alloc support"
+version = "0.8.4"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"

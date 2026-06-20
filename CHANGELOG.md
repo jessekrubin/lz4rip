@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-06-20
+
+- Updated DESIGN.md and SAFETY.md for the crate split: file paths, unsafe block inventory, compile-time specialization, 32-bit hash fallback, crate split rationale section.
+- Chart legend: "encapsulated unsafe" replaces "safe API".
+
 ## [0.8.3] - 2026-06-19
 
 - Removed `doc/charts/**/*.svg` from the facade crate's `include` list. Charts use absolute GitHub URLs and were dead weight (~89 KB).
