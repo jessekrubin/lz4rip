@@ -157,6 +157,10 @@ assert_eq!(output, "Hello frame format!");
 
 [SAFETY.md](SAFETY.md) documents the unsafe boundary and catalogs C lz4 memory safety bugs that Rust prevents by construction.
 
+All codec paths are fuzz-tested (6 targets, ~74M executions across block and
+frame round-trip, corruption resistance, cross-validation against C lz4, and
+output-leak detection) and verified under Miri on both x86_64 and aarch64.
+
 ## Development
 
 [DEVELOPMENT.md](DEVELOPMENT.md) covers benchmarking, fuzzing, and feature flags.
