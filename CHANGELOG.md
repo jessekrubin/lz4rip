@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-06-20
+
+- Added `SECURITY.md` with private vulnerability reporting instructions.
+
 ## [0.8.4] - 2026-06-20
 
 - Updated DESIGN.md and SAFETY.md for the crate split: file paths, unsafe block inventory, compile-time specialization, 32-bit hash fallback, crate split rationale section.
