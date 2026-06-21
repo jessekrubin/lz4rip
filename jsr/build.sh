@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+cd "$(dirname "$0")"
+
+PKG=src/pkg
+TMP=src/pkg-tmp
+
+rm -rf "$PKG" "$TMP"
+mkdir -p "$PKG"
+
+echo "==> Building WASM..."
+cd wasm
+wasm-pack build --target web --release --out-dir "../$TMP"
+cd ..
+
+cp "$TMP/lz4rip_wasm.js" "$PKG/"
+cp "$TMP/lz4rip_wasm.d.ts" "$PKG/"
+cp "$TMP/lz4rip_wasm_bg.wasm.d.ts" "$PKG/"
+mv "$TMP/lz4rip_wasm_bg.wasm" "$PKG/lz4rip.wasm"
+
+rm -rf "$TMP"
+
+WASM_SIZE=$(wc -c < "$PKG/lz4rip.wasm")
+echo "==> Done. ${WASM_SIZE} bytes"

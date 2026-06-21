@@ -81,15 +81,9 @@ pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
     unsafe { (input.as_ptr().add(n) as *const u32).read_unaligned() }
 }
 
-/// Read a native-endian 4-byte integer from `input[n..]`.
-#[inline]
-#[cfg(target_pointer_width = "32")]
-pub(crate) fn get_batch(input: &[u8], n: usize) -> u32 {
-    u32::from_ne_bytes(input[n..n + 4].try_into().unwrap())
-}
-
 /// Read an usize sized "batch" from some position (native-endian).
 #[inline]
+#[cfg(target_pointer_width = "64")]
 pub(crate) fn get_batch_arch(input: &[u8], n: usize) -> usize {
     const USIZE_SIZE: usize = core::mem::size_of::<usize>();
     let arr: &[u8; USIZE_SIZE] = input[n..n + USIZE_SIZE].try_into().unwrap();
@@ -128,6 +122,7 @@ pub trait HashTable {
 const HASHTABLE_SIZE_U32: usize = 2 * 1024;
 const HASHTABLE_SIZE_U16: usize = 4 * 1024;
 
+#[cfg(target_pointer_width = "64")]
 const U32_HASH_BYTES: usize = 5;
 
 /// A 4K entry hash table using 16-bit values (8KB total).
