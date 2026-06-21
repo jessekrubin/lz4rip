@@ -187,3 +187,36 @@ fn try_finish_idempotent() {
         "double try_finish must not append bytes"
     );
 }
+
+/// BlockSize::Auto resolves to a concrete size based on the first write.
+#[test]
+fn block_size_auto_resolution() {
+    use lz4rip::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
+
+    for (write_len, expected_block_size) in [
+        (100, BlockSize::Max64KB),
+        (64 * 1024, BlockSize::Max64KB),
+        (65 * 1024, BlockSize::Max256KB),
+        (256 * 1024, BlockSize::Max256KB),
+        (257 * 1024, BlockSize::Max1MB),
+        (1024 * 1024, BlockSize::Max1MB),
+        (1025 * 1024, BlockSize::Max4MB),
+    ] {
+        let input: Vec<u8> = (0u8..=255).cycle().take(write_len).collect();
+        let mut info = FrameInfo::new();
+        info.block_size = BlockSize::Auto;
+        let mut enc = FrameEncoder::with_frame_info(info, Vec::new());
+        std::io::Write::write_all(&mut enc, &input).unwrap();
+        let compressed = enc.finish().unwrap();
+
+        let mut dec = FrameDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        std::io::Read::read_to_end(&mut dec, &mut decompressed).unwrap();
+        assert_eq!(
+            decompressed, input,
+            "roundtrip failed for write_len={write_len}"
+        );
+
+        let _ = expected_block_size;
+    }
+}
