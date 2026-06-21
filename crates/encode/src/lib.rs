@@ -29,7 +29,8 @@ pub use compressor::Compressor;
 pub use dict::DictTrainer;
 pub use lz4rip_core::CompressError;
 
-// Internal items needed by the lz4rip facade crate for the frame module.
+// Cross-crate plumbing for the lz4rip facade (frame module + tests).
+// Public for workspace access but not part of the stable API.
 #[doc(hidden)]
 pub use compress::{compress_internal, compress_into_sink_with_dict, write_integer};
 #[doc(hidden)]
