@@ -26,13 +26,12 @@ pub struct Compressor {
     // SAFETY invariants (self-referential struct):
     //   `inner` may hold a `&[u8]` fabricated via `from_raw_parts` pointing
     //   into `dict`'s heap buffer. Sound because:
-    //   1. `inner` is declared before `dict` → dropped first (Rust field order).
+    //   1. The `Drop` impl below drops `inner` before `dict` via ManuallyDrop.
     //   2. `dict` is private and never reallocated after construction.
-    //   3. `CompressorRef` has no Drop impl that accesses the slice.
-    //   4. No Clone/Copy impl exists. Cloning would copy the Vec (new alloc)
+    //   3. No Clone/Copy impl exists. Cloning would copy the Vec (new alloc)
     //      but `inner` would still point at the original buffer → UB on drop.
-    //   5. No method exposes `inner` by value or mutates `dict`.
-    inner: CompressorRef<'static>,
+    //   4. No method exposes `inner` by value or mutates `dict`.
+    inner: core::mem::ManuallyDrop<CompressorRef<'static>>,
     #[allow(dead_code)]
     dict: Vec<u8>,
 }
@@ -49,7 +48,7 @@ impl Compressor {
     /// Create a new compressor without a dictionary.
     pub fn new() -> Self {
         Compressor {
-            inner: CompressorRef::new(),
+            inner: core::mem::ManuallyDrop::new(CompressorRef::new()),
             dict: Vec::new(),
         }
     }
@@ -66,7 +65,7 @@ impl Compressor {
         let dict_ref: &'static [u8] =
             unsafe { core::slice::from_raw_parts(dict.as_ptr(), dict.len()) };
         Compressor {
-            inner: CompressorRef::with_dict(dict_ref),
+            inner: core::mem::ManuallyDrop::new(CompressorRef::with_dict(dict_ref)),
             dict,
         }
     }
@@ -85,6 +84,15 @@ impl Compressor {
     /// Compress `input` into a new `Vec<u8>`.
     pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
         self.inner.compress(input)
+    }
+}
+
+impl Drop for Compressor {
+    fn drop(&mut self) {
+        // SAFETY: Drop `inner` before `dict` so the fabricated &'static [u8]
+        // is released while `dict`'s heap buffer is still alive.
+        // After this, `dict` is dropped by the compiler's field-drop glue.
+        unsafe { core::mem::ManuallyDrop::drop(&mut self.inner) };
     }
 }
 
