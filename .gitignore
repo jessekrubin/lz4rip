@@ -13,5 +13,6 @@ Session.vim
 *.sweep_bak
 /jsr/wasm/target
 /jsr/wasm/Cargo.lock
+/jsr/src/pkg
 /jsr/src/pkg-tmp
 /tmp/

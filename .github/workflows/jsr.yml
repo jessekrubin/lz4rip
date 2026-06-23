@@ -20,4 +20,4 @@ jobs:
           deno-version: v2.x
       - run: cargo install wasm-pack
       - run: cd jsr && bash build.sh
-      - run: cd jsr && deno publish
+      - run: cd jsr && deno publish --allow-dirty
