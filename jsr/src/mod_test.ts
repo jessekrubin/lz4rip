@@ -1,6 +1,7 @@
 import {
   assertEquals,
   assert,
+  assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   init,
@@ -15,6 +16,8 @@ import {
 Deno.test("init", async () => {
   await init();
 });
+
+// --- One-shot ---
 
 Deno.test("one-shot round-trip", () => {
   const data = new TextEncoder().encode("hello world, hello lz4!".repeat(100));
@@ -36,6 +39,15 @@ Deno.test("empty input", () => {
   assertEquals(decompressed, empty);
 });
 
+Deno.test("incompressible data", () => {
+  const random = crypto.getRandomValues(new Uint8Array(4096));
+  const compressed = compress(random);
+  const decompressed = decompress(compressed, random.length);
+  assertEquals(decompressed, random);
+});
+
+// --- Stateful ---
+
 Deno.test("stateful compressor", () => {
   const compressor = new Compressor();
   const data1 = new TextEncoder().encode("first message".repeat(50));
@@ -49,6 +61,17 @@ Deno.test("stateful compressor", () => {
 
   compressor.free();
 });
+
+Deno.test("stateful decompressor", () => {
+  const data = new TextEncoder().encode("hello world, hello lz4!".repeat(100));
+  const compressed = compress(data);
+  const decompressor = new Decompressor();
+  const decompressed = decompressor.decompress(compressed, data.length);
+  assertEquals(decompressed, data);
+  decompressor.free();
+});
+
+// --- Dictionary ---
 
 Deno.test("dict round-trip", () => {
   const dict = new TextEncoder().encode(
@@ -89,18 +112,38 @@ Deno.test("dict trainer", () => {
   assert(dict.length > 0);
 });
 
-Deno.test("decompressor without dict", () => {
-  const data = new TextEncoder().encode("hello world, hello lz4!".repeat(100));
-  const compressed = compress(data);
-  const decompressor = new Decompressor();
-  const decompressed = decompressor.decompress(compressed, data.length);
-  assertEquals(decompressed, data);
-  decompressor.free();
+Deno.test("dict trainer consumes on train", () => {
+  const trainer = new DictTrainer(1024);
+  for (let i = 0; i < 50; i++) {
+    trainer.addSample(new TextEncoder().encode(`sample ${i} data`.repeat(5)));
+  }
+  trainer.train();
+  assertThrows(() => trainer.train(), Error);
 });
 
-Deno.test("incompressible data", () => {
-  const random = crypto.getRandomValues(new Uint8Array(4096));
-  const compressed = compress(random);
-  const decompressed = decompress(compressed, random.length);
-  assertEquals(decompressed, random);
+// --- Error paths ---
+
+Deno.test("decompress with too-small size throws", () => {
+  const data = new TextEncoder().encode("hello world".repeat(100));
+  const compressed = compress(data);
+  assertThrows(
+    () => decompress(compressed, data.length - 100),
+    Error,
+  );
+});
+
+Deno.test("decompress truncated data throws", () => {
+  const data = new TextEncoder().encode("hello world".repeat(100));
+  const compressed = compress(data);
+  assertThrows(
+    () => decompress(compressed.slice(0, compressed.length / 2), data.length),
+    Error,
+  );
+});
+
+Deno.test("decompress garbage throws", () => {
+  assertThrows(
+    () => decompress(new Uint8Array([0, 1, 2, 3, 4, 5]), 100),
+    Error,
+  );
 });
