@@ -438,7 +438,19 @@ impl fmt::Debug for Decompressor {
 }
 
 #[cfg(feature = "alloc")]
+impl Default for Decompressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "alloc")]
 impl Decompressor {
+    /// Create a decompressor with no dictionary.
+    pub fn new() -> Self {
+        Decompressor { dict: Vec::new() }
+    }
+
     /// Create a decompressor seeded with an external dictionary.
     ///
     /// The dictionary is cloned into owned storage.
