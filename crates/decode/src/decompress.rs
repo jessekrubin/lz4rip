@@ -15,6 +15,19 @@ use alloc::vec::Vec;
 /// Read a variable-length integer in the LZ4 encoding.
 #[inline]
 pub fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize, DecompressError> {
+    read_integer_bounded(input, input_pos, usize::MAX)
+}
+
+/// Read a variable-length integer, bailing early when the accumulated value
+/// exceeds `max`. Bounds CPU time on crafted streams with long runs of 0xFF
+/// continuation bytes: the caller passes the output capacity so the loop
+/// stops as soon as the value is known to be rejected.
+#[inline]
+fn read_integer_bounded(
+    input: &[u8],
+    input_pos: &mut usize,
+    max: usize,
+) -> Result<usize, DecompressError> {
     let mut n: usize = 0;
     loop {
         let extra: u8 = *input
@@ -25,6 +38,9 @@ pub fn read_integer(input: &[u8], input_pos: &mut usize) -> Result<usize, Decomp
             .checked_add(extra as usize)
             .ok_or(DecompressError::LiteralOutOfBounds)?;
         if extra != 0xFF {
+            break;
+        }
+        if n > max {
             break;
         }
     }
@@ -147,7 +163,7 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
             }
 
             let match_length = (MINMATCH + 15)
-                .checked_add(read_integer(input, &mut input_pos)?)
+                .checked_add(read_integer_bounded(input, &mut input_pos, out.len())?)
                 .ok_or(DecompressError::LiteralOutOfBounds)?;
             if *pos + match_length > out.len() {
                 return Err(DecompressError::OutputTooSmall {
@@ -203,7 +219,11 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
         if literal_length != 0 {
             if literal_length == 15 {
                 literal_length = literal_length
-                    .checked_add(read_integer(input, &mut input_pos)?)
+                    .checked_add(read_integer_bounded(
+                        input,
+                        &mut input_pos,
+                        output.capacity(),
+                    )?)
                     .ok_or(DecompressError::LiteralOutOfBounds)?;
             }
 
@@ -245,7 +265,11 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
         let mut match_length = MINMATCH + (token & 0xF) as usize;
         if match_length == MINMATCH + 15 {
             match_length = match_length
-                .checked_add(read_integer(input, &mut input_pos)?)
+                .checked_add(read_integer_bounded(
+                    input,
+                    &mut input_pos,
+                    output.capacity(),
+                )?)
                 .ok_or(DecompressError::LiteralOutOfBounds)?;
         }
 

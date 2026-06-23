@@ -11,3 +11,4 @@ Session.vim
 /sweep_bins/
 /sweep_results.json
 *.sweep_bak
+/tmp/

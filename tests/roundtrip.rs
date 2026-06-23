@@ -224,6 +224,41 @@ fn vec_from_length(length: u8) -> impl Strategy<Value = Vec<Vec<u8>>> {
     result
 }
 
+/// CompressorRef epoch-based table reuse: compress many small inputs
+/// (below EPOCH_THRESHOLD = 8 KB) through the same CompressorRef to
+/// exercise stream_offset advancement and the overflow/reset path.
+#[test]
+fn compressor_ref_epoch_reuse() {
+    use lz4rip::block::{decompress, get_maximum_output_size, CompressorRef};
+
+    let mut comp = CompressorRef::new();
+    let input = b"the quick brown fox jumps over the lazy dog, again and again!";
+    let mut output = vec![0u8; get_maximum_output_size(input.len())];
+
+    for _ in 0..1000 {
+        let n = comp.compress_into(input, &mut output).unwrap();
+        let decompressed = decompress(&output[..n], input.len()).unwrap();
+        assert_eq!(&decompressed, input);
+    }
+}
+
+/// CompressorRef with dict: exercise the u16 boundary fallback.
+/// When dict.len() + input.len() >= u16::MAX, CompressorRef::compress_into
+/// falls back from compress_with_dict_table to compress_internal.
+#[test]
+fn compressor_ref_dict_u16_boundary_fallback() {
+    use lz4rip::block::{Compressor, Decompressor};
+
+    let dict = vec![b'A'; 32768];
+    let input: Vec<u8> = (0u8..=255).cycle().take(40000).collect();
+
+    let mut comp = Compressor::with_dict(&dict);
+    let compressed = comp.compress(&input);
+    let decomp = Decompressor::with_dict(&dict);
+    let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
+    assert_eq!(decompressed, input);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("regressions"))),
