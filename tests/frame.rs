@@ -198,8 +198,8 @@ fn block_size_auto_resolution() {
         (64 * 1024, BlockSize::Max64KB),
         (65 * 1024, BlockSize::Max256KB),
         (256 * 1024, BlockSize::Max256KB),
-        (257 * 1024, BlockSize::Max1MB),
-        (1024 * 1024, BlockSize::Max1MB),
+        (257 * 1024, BlockSize::Max4MB),
+        (1024 * 1024, BlockSize::Max4MB),
         (1025 * 1024, BlockSize::Max4MB),
     ] {
         let input: Vec<u8> = (0u8..=255).cycle().take(write_len).collect();
@@ -207,6 +207,11 @@ fn block_size_auto_resolution() {
         info.block_size = BlockSize::Auto;
         let mut enc = FrameEncoder::with_frame_info(info, Vec::new());
         std::io::Write::write_all(&mut enc, &input).unwrap();
+        assert_eq!(
+            enc.frame_info().block_size,
+            expected_block_size,
+            "Auto resolved to wrong block size for write_len={write_len}"
+        );
         let compressed = enc.finish().unwrap();
 
         let mut dec = FrameDecoder::new(&compressed[..]);
@@ -216,7 +221,5 @@ fn block_size_auto_resolution() {
             decompressed, input,
             "roundtrip failed for write_len={write_len}"
         );
-
-        let _ = expected_block_size;
     }
 }
