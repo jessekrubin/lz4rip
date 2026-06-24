@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+### Security
+
+- Bound `read_integer` loop to prevent CPU-time DoS on crafted streams with long runs of 0xFF continuation bytes.
+- `get_maximum_output_size` saturates to `usize::MAX` on 32-bit overflow instead of truncating.
+- Enforce `Compressor` drop order with `ManuallyDrop` and explicit `Drop` impl (previously relied on field declaration order).
+
+### Added
+
+- `Decompressor::new()` constructor and `Default` impl for decompression without a dictionary.
+- JSR/WASM package (`@paddor/lz4rip`): LZ4 block compression compiled to WebAssembly with dictionary support.
+
+### Fixed
+
+- Dead code on `wasm32`: gated `get_batch_arch` and `U32_HASH_BYTES` to 64-bit targets.
+
 ## [0.8.5] - 2026-06-20
 
 - Added `SECURITY.md` with private vulnerability reporting instructions.
