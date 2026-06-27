@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-27
+
+### Added
+
+- Compile-time static assertion that `Compressor` does not implement `Clone` (self-referential struct; cloning would be UB).
+- 16 adversarial dictionary compression tests covering boundary-crossing matches, compressor reuse, corrupted/wrong-dict decompression, edge sizes, and the u16 table fallback. All pass under miri.
+
 ## [0.9.0] - 2026-06-24
 
 ### Security
