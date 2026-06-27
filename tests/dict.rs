@@ -1,4 +1,7 @@
-use lz4rip::block::{compress, Compressor, Decompressor, DictTrainer};
+use lz4rip::block::{
+    compress, compress_into_with_dict, decompress_into_with_dict, get_maximum_output_size,
+    Compressor, CompressorRef, Decompressor, DecompressorRef, DictTrainer,
+};
 use more_asserts::assert_lt;
 
 const HDFS: &[u8] = include_bytes!("../corpus/hdfs.json");
@@ -81,4 +84,209 @@ fn dict_trainer_produces_usable_dict() {
     let decomp = Decompressor::with_dict(&dict);
     let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
     assert_eq!(&decompressed[..], input);
+}
+
+// ---- Adversarial dict tests (all miri-friendly) ----
+
+fn dict_roundtrip_ref(dict: &[u8], input: &[u8]) {
+    let mut comp = CompressorRef::with_dict(dict);
+    let mut out = vec![0u8; get_maximum_output_size(input.len())];
+    let n = comp.compress_into(input, &mut out).unwrap();
+    let compressed = &out[..n];
+
+    let decomp = DecompressorRef::with_dict(dict);
+    let decompressed = decomp.decompress(compressed, input.len()).unwrap();
+    assert_eq!(&decompressed[..], input);
+}
+
+fn dict_roundtrip_owning(dict: &[u8], input: &[u8]) {
+    let mut comp = Compressor::with_dict(dict);
+    let compressed = comp.compress(input);
+    let decomp = Decompressor::with_dict(dict);
+    let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
+    assert_eq!(&decompressed[..], input);
+}
+
+fn dict_roundtrip_free(dict: &[u8], input: &[u8]) {
+    let mut out = vec![0u8; get_maximum_output_size(input.len())];
+    let n = compress_into_with_dict(input, &mut out, dict).unwrap();
+    let mut dec_out = vec![0u8; input.len()];
+    let m = decompress_into_with_dict(&out[..n], &mut dec_out, dict).unwrap();
+    assert_eq!(&dec_out[..m], input);
+}
+
+/// Dict below MINMATCH (4): should be ignored, still roundtrips.
+#[test]
+fn dict_too_short_ignored() {
+    let dict = b"abc";
+    let input = b"hello world, hello world, hello!";
+    dict_roundtrip_ref(dict, input);
+    dict_roundtrip_owning(dict, input);
+    dict_roundtrip_free(dict, input);
+}
+
+/// Dict exactly MINMATCH (4 bytes).
+#[test]
+fn dict_exactly_minmatch() {
+    let dict = b"helo";
+    let input = b"helo world helo world helo helo";
+    dict_roundtrip_ref(dict, input);
+    dict_roundtrip_owning(dict, input);
+}
+
+/// Empty input with a dict.
+#[test]
+fn dict_empty_input() {
+    let dict = b"some dictionary content here padding";
+    let input = b"";
+    dict_roundtrip_ref(dict, input);
+    dict_roundtrip_owning(dict, input);
+    dict_roundtrip_free(dict, input);
+}
+
+/// Input shorter than MINMATCH with a dict.
+#[test]
+fn dict_input_shorter_than_minmatch() {
+    let dict = b"abcdefghijklmnop";
+    let input = b"ab";
+    dict_roundtrip_ref(dict, input);
+    dict_roundtrip_owning(dict, input);
+}
+
+/// Match that spans the dict/input boundary: input starts with bytes from the
+/// dict, forcing the compressor to emit a match whose source is in the dict.
+#[test]
+fn dict_match_crosses_boundary() {
+    let dict = b"the quick brown fox jumps over the lazy dog";
+    let input = b"the lazy dog sleeps, the quick brown fox jumps over the lazy dog again";
+    dict_roundtrip_ref(dict, input);
+    dict_roundtrip_owning(dict, input);
+    dict_roundtrip_free(dict, input);
+}
+
+/// Reuse: compress many small inputs through the same owning Compressor.
+/// Catches use-after-free on the self-referential dict borrow.
+#[test]
+fn dict_compressor_reuse() {
+    let dict = b"prefix:key=value;prefix:key=value;padding!!";
+    let mut comp = Compressor::with_dict(dict);
+    let decomp = Decompressor::with_dict(dict);
+
+    for i in 0u8..50 {
+        let input: Vec<u8> = format!("prefix:key=value;seq={i};extra padding data").into();
+        let compressed = comp.compress(&input);
+        let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
+        assert_eq!(decompressed, input);
+    }
+}
+
+/// Reuse: CompressorRef with dict, many calls.
+#[test]
+fn dict_compressor_ref_reuse() {
+    let dict = b"AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH";
+    let mut comp = CompressorRef::with_dict(dict);
+    let decomp = DecompressorRef::with_dict(dict);
+
+    for i in 0u8..50 {
+        let input: Vec<u8> = [b"AAAA BBBB CCCC " as &[u8], &[i], b" DDDD EEEE"].concat();
+        let mut out = vec![0u8; get_maximum_output_size(input.len())];
+        let n = comp.compress_into(&input, &mut out).unwrap();
+        let decompressed = decomp.decompress(&out[..n], input.len()).unwrap();
+        assert_eq!(decompressed, input);
+    }
+}
+
+/// Dict larger than input: exercises the dual-table path where dict entries
+/// dominate the hash table.
+#[test]
+fn dict_larger_than_input() {
+    let dict: Vec<u8> = (0..512)
+        .map(|i| b"the quick brown fox jumps "[i % 26])
+        .collect();
+    let input = b"the quick brown fox";
+    dict_roundtrip_ref(&dict, input);
+    dict_roundtrip_owning(&dict, input);
+}
+
+/// All-zeros dict + all-zeros input: overlapping match copies with offset=1
+/// in the dict path.
+#[test]
+fn dict_all_zeros() {
+    let dict = vec![0u8; 256];
+    let input = vec![0u8; 300];
+    dict_roundtrip_ref(&dict, &input);
+    dict_roundtrip_owning(&dict, &input);
+}
+
+/// Highly repetitive dict + varied input: dict fills the hash table with
+/// entries that all collide, then input has different content.
+#[test]
+fn dict_repetitive_input_varied() {
+    let dict: Vec<u8> = b"ABCDABCDABCDABCD".repeat(8);
+    let input: Vec<u8> = (0u8..=255).collect();
+    dict_roundtrip_ref(&dict, &input);
+    dict_roundtrip_owning(&dict, &input);
+}
+
+/// Dict + input near the u16 boundary (dict 32K, input 32K).
+/// Exercises the fallback from dual HashTableU32U16 to single HashTableU32.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn dict_u16_boundary() {
+    let dict: Vec<u8> = (0u8..=255).cycle().take(32768).collect();
+    let input: Vec<u8> = (0u8..=255).cycle().take(32768).collect();
+    dict_roundtrip_owning(&dict, &input);
+}
+
+/// Dict + input just below u16 boundary: stays on the dual-table fast path.
+#[test]
+fn dict_just_below_u16() {
+    let dict: Vec<u8> = (0u8..=255).cycle().take(16384).collect();
+    let input: Vec<u8> = (0u8..=255).cycle().take(16384).collect();
+    dict_roundtrip_ref(&dict, &input);
+    dict_roundtrip_owning(&dict, &input);
+}
+
+/// Decompress with dict + corrupted compressed data: must not UB.
+#[test]
+fn dict_decompress_corrupted() {
+    let dict = b"dictionary content for decompression test here!!";
+    let input = b"dictionary content appears in input too here!!";
+    let mut comp = Compressor::with_dict(dict);
+    let compressed = comp.compress(input);
+
+    let decomp = Decompressor::with_dict(dict);
+    for i in 0..compressed.len() {
+        let mut corrupted = compressed.clone();
+        corrupted[i] ^= 0xFF;
+        let _ = decomp.decompress(&corrupted, input.len());
+    }
+    for i in 1..compressed.len() {
+        let _ = decomp.decompress(&compressed[..i], input.len());
+    }
+}
+
+/// Decompress with wrong dict: must error, not UB.
+#[test]
+fn dict_decompress_wrong_dict() {
+    let dict_a = b"aaaa bbbb cccc dddd eeee ffff gggg hhhh";
+    let dict_b = b"xxxx yyyy zzzz wwww vvvv uuuu tttt ssss";
+    let input = b"aaaa bbbb cccc dddd, aaaa bbbb cccc dddd";
+
+    let mut comp = Compressor::with_dict(dict_a);
+    let compressed = comp.compress(input);
+
+    let decomp = Decompressor::with_dict(dict_b);
+    let result = decomp.decompress(&compressed, input.len());
+    assert!(result.is_err() || result.unwrap() != input);
+}
+
+/// Free-function dict API with various sizes.
+#[test]
+fn dict_free_fn_sizes() {
+    let dict = b"common prefix string for matching purposes here";
+    for size in [0, 1, 3, 4, 5, 15, 16, 50, 100, 255, 256, 500] {
+        let input: Vec<u8> = (0u8..=255).cycle().take(size).collect();
+        dict_roundtrip_free(dict, &input);
+    }
 }
