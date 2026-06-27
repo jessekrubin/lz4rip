@@ -83,8 +83,18 @@ impl Sink for SliceSink<'_> {
     #[cfg_attr(feature = "nightly", optimize(size))]
     fn extend_from_within_overlapping(&mut self, start: usize, num_bytes: usize) {
         let offset = self.pos - start;
-        for i in start + offset..start + offset + num_bytes {
-            self.output[i] = self.output[i - offset];
+        if offset == 1 {
+            let val = self.output[start];
+            self.output[self.pos..self.pos + num_bytes].fill(val);
+        } else {
+            self.output.copy_within(start..start + offset, self.pos);
+            let mut copied = offset;
+            while copied < num_bytes {
+                let n = copied.min(num_bytes - copied);
+                let src = self.pos;
+                self.output.copy_within(src..src + n, src + copied);
+                copied += n;
+            }
         }
         self.pos += num_bytes;
     }
