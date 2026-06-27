@@ -101,3 +101,16 @@ impl Default for Compressor {
         Self::new()
     }
 }
+
+// SAFETY: Compressor is self-referential (`inner` borrows `dict`'s heap buffer).
+// Deriving Clone would copy the Vec (new allocation) while `inner` still points
+// at the original buffer, causing use-after-free on drop.
+const _: () = {
+    trait NotClone {
+        const OK: () = ();
+    }
+    impl<T: Clone> NotClone for T {}
+    impl NotClone for Compressor {}
+    #[allow(clippy::let_unit_value)]
+    let _ = <Compressor as NotClone>::OK;
+};
