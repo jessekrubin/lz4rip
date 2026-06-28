@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-28
+
+### Changed
+
+- Dictionary compression: read-only path for inputs <= 256 bytes skips hash table writes and uses the dict table as the sole match source.
+- Dictionary compression: probe dict table before main table, restructure to keep `input_stream_offset` live in a register across both checks.
+- Unchecked hash reads in `HashTableU32U16` and `HashTableU32`, eliminating bounds checks that pinned `input.len()` in a GPR. Shrinks `compress_with_dict_table` by 168 bytes.
+- Drop `shrink_to_fit()` on compress return vecs.
+
+### Fixed
+
+- Skip slow tests (30K+ byte inputs) under miri.
+
+## [0.9.2] - 2026-06-27
+
+### Changed
+
+- Exclude `jsr/` from crate package.
+
 ## [0.9.1] - 2026-06-27
 
 ### Added
