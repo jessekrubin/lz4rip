@@ -154,6 +154,7 @@ fn bug_fuzz_6() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_so_many_zeros() {
     let data: Vec<u8> = iter::repeat_n(0, 30_000).collect();
     test_roundtrip(data);
@@ -187,16 +188,19 @@ fn test_dickens() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_json_66k() {
     test_roundtrip(COMPRESSION66JSON);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_text_65k() {
     test_roundtrip(COMPRESSION65);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_text_34k() {
     test_roundtrip(COMPRESSION34K);
 }

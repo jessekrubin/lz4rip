@@ -24,6 +24,7 @@ fn concatenated() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn checksums() {
     for &input in &[COMPRESSION34K, COMPRESSION66JSON] {
         // Block checksum
@@ -190,6 +191,7 @@ fn try_finish_idempotent() {
 
 /// BlockSize::Auto resolves to a concrete size based on the first write.
 #[test]
+#[cfg_attr(miri, ignore)]
 fn block_size_auto_resolution() {
     use lz4rip::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 
