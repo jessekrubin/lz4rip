@@ -90,6 +90,13 @@ pub(crate) fn get_batch_arch(input: &[u8], n: usize) -> usize {
     usize::from_ne_bytes(*arr)
 }
 
+#[inline]
+#[cfg(target_pointer_width = "64")]
+unsafe fn get_batch_arch_unchecked(input: &[u8], n: usize) -> usize {
+    debug_assert!(n + core::mem::size_of::<usize>() <= input.len());
+    (input.as_ptr().add(n) as *const usize).read_unaligned()
+}
+
 // Knuth's multiplicative hash constant (golden ratio * 2^32).
 const KNUTH: u32 = 2_654_435_761;
 
@@ -172,6 +179,13 @@ impl HashTable for HashTableU32U16 {
         (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
     }
     #[inline]
+    #[cfg(target_pointer_width = "64")]
+    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+        // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
+        let batch = unsafe { get_batch_arch_unchecked(input, pos) };
+        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
+    }
+    #[inline]
     #[cfg(target_pointer_width = "32")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
@@ -243,6 +257,13 @@ impl HashTable for HashTableU32 {
             let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
             (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
         }
+    }
+    #[inline]
+    #[cfg(target_pointer_width = "64")]
+    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+        // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
+        let batch = unsafe { get_batch_arch_unchecked(input, pos) };
+        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U32.ilog2() as usize)
     }
     #[inline]
     #[cfg(target_pointer_width = "32")]
