@@ -51,7 +51,7 @@ const LITERAL_LEN_MASK: u8 = 0b1111_0000;
 
 #[test]
 fn check_token() {
-    assert!(!does_token_fit(15));
+    assert!(!does_token_fit(0xFF));
     assert!(does_token_fit(14));
     assert!(does_token_fit(114));
     assert!(!does_token_fit(0b11110000));
