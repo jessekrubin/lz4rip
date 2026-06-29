@@ -16,20 +16,22 @@ import tempfile
 from pathlib import Path
 
 
-CODEC_ORDER = ["C lz4", "lz4rip", "lz4_flex unsafe", "lz4_flex"]
+CODEC_ORDER = ["C lz4", "lz4rip", "lz4_flex unsafe", "lz4rip paranoid", "lz4_flex"]
 
 COLORS = {
     "C lz4":             ("#60a5fa", "#4680c4"),   # blue
     "lz4rip":            ("#f87171", "#c45050"),   # red
+    "lz4rip paranoid":   ("#f472b6", "#c05a92"),   # pink
     "lz4_flex unsafe":   ("#f59e0b", "#c47d08"),   # amber
     "lz4_flex":          ("#4ade80", "#3aaf60"),   # green
 }
 
 LABELS = {
     "C lz4":             "lz4 (C)",
-    "lz4rip":            "lz4rip (encapsulated unsafe, Rust)",
-    "lz4_flex unsafe":   "lz4_flex (unsafe Rust)",
-    "lz4_flex":          "lz4_flex (safe Rust)",
+    "lz4rip":            "lz4rip (unsafe)",
+    "lz4rip paranoid":   "lz4rip paranoid (safe)",
+    "lz4_flex unsafe":   "lz4_flex (unsafe)",
+    "lz4_flex":          "lz4_flex (safe)",
 }
 
 DICT_CODEC_ORDER = ["C lz4 (dict 2K)", "lz4rip (dict 2K)"]
@@ -277,7 +279,13 @@ def pipeline_chart(results, out_dir):
     leg_y = panel_tops[-1] + panel_h + 50
     legend_items = [(k, LABELS[k]) for k in codecs if k in COLORS]
     row_h = 18
-    leg_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]  # (col, row)
+    # Two columns, column-major: left column takes the extra entry when the
+    # count is odd (e.g. 5 codecs -> 3 left, 2 right). Matches the 4-codec
+    # layout exactly when there is no paranoid bar.
+    left_count = (len(legend_items) + 1) // 2
+    leg_positions = [(0, r) for r in range(left_count)] + [
+        (1, r) for r in range(len(legend_items) - left_count)
+    ]
     leg_col_x = [mid_x - 200, mid_x + 10]
     for i, (key, label) in enumerate(legend_items):
         if i >= len(leg_positions):
@@ -295,7 +303,7 @@ def pipeline_chart(results, out_dir):
             f' font-size="10" font-weight="500">{label}</text>'
         )
 
-    n_legend_rows = 2
+    n_legend_rows = left_count
     # bar segment legend: bright = compress/decompress, dim = transfer
     seg_y = leg_y + n_legend_rows * row_h + 8
     seg_items = [
@@ -469,7 +477,13 @@ def summary_chart(results, out_dir):
     leg_y = y_bot + 40
     legend_items = [(k, LABELS[k]) for k in codecs if k in COLORS]
     row_h = 18
-    leg_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]  # (col, row)
+    # Two columns, column-major: left column takes the extra entry when the
+    # count is odd (e.g. 5 codecs -> 3 left, 2 right). Matches the 4-codec
+    # layout exactly when there is no paranoid bar.
+    left_count = (len(legend_items) + 1) // 2
+    leg_positions = [(0, r) for r in range(left_count)] + [
+        (1, r) for r in range(len(legend_items) - left_count)
+    ]
     leg_col_x = [mid_x - 200, mid_x + 10]
     for i, (key, label) in enumerate(legend_items):
         if i >= len(leg_positions):
@@ -487,7 +501,7 @@ def summary_chart(results, out_dir):
             f' font-size="10" font-weight="500">{label}</text>'
         )
 
-    n_legend_rows = 2
+    n_legend_rows = left_count
     # bar segment legend: bright = compress/decompress, dim = transfer
     seg_y = leg_y + n_legend_rows * row_h + 8
     seg_items = [

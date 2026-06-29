@@ -454,7 +454,7 @@ pub fn compress_into_sink_with_dict<const USE_DICT: bool>(
 }
 
 #[inline]
-fn init_dict<T: HashTable>(dict: &mut T, dict_data: &mut &[u8]) {
+pub(crate) fn init_dict<T: HashTable>(dict: &mut T, dict_data: &mut &[u8]) {
     if dict_data.len() > WINDOW_SIZE {
         *dict_data = &dict_data[dict_data.len() - WINDOW_SIZE..];
     }
@@ -541,6 +541,10 @@ pub struct CompressorRef<'a> {
     tables: CompressorTables<'a>,
 }
 
+// Without `alloc`, hash tables are stack-allocated arrays, so the `Dict`
+// variant is unavoidably ~16 KB. Boxing the large fields is impossible without
+// a heap, and the variant size is intentional, so the lint does not apply here.
+#[cfg_attr(not(feature = "alloc"), allow(clippy::large_enum_variant))]
 enum CompressorTables<'a> {
     Plain {
         table: HashTableU32,
@@ -622,61 +626,11 @@ impl<'a> CompressorRef<'a> {
                 table,
                 pristine,
                 dict,
-            } => {
-                if input.len() <= DICT_READONLY_LIMIT
-                    && dict.len() + input.len() < u16::MAX as usize
-                {
-                    compress_internal::<_, true, true, true, _>(
-                        input,
-                        0,
-                        &mut VerifiedSliceSink::new(output, 0),
-                        pristine,
-                        dict,
-                        dict.len(),
-                    )
-                } else if dict.len() + input.len() < u16::MAX as usize {
-                    table.clear();
-                    compress_with_dict_table(
-                        input,
-                        &mut VerifiedSliceSink::new(output, 0),
-                        table,
-                        pristine,
-                        dict,
-                        dict.len(),
-                    )
-                } else {
-                    compress_into_sink_with_dict::<true>(
-                        input,
-                        &mut VerifiedSliceSink::new(output, 0),
-                        dict,
-                    )
-                }
-            }
+            } => compress_dict_tables(table, pristine, dict, input, output),
             CompressorTables::Plain {
                 table,
                 stream_offset,
-            } => {
-                let offset = prepare_plain_table(table, stream_offset, input.len());
-                if offset > 0 {
-                    compress_internal::<_, false, true, false, _>(
-                        input,
-                        0,
-                        &mut VerifiedSliceSink::new(output, 0),
-                        table,
-                        b"",
-                        offset,
-                    )
-                } else {
-                    compress_internal::<_, false, false, false, _>(
-                        input,
-                        0,
-                        &mut VerifiedSliceSink::new(output, 0),
-                        table,
-                        b"",
-                        0,
-                    )
-                }
-            }
+            } => compress_plain_table(table, stream_offset, input, output),
         }
     }
 
@@ -689,6 +643,70 @@ impl<'a> CompressorRef<'a> {
         compressed.truncate(compressed_len);
 
         compressed
+    }
+}
+
+/// Compress `input` using the dict main + pristine tables. Shared by
+/// [`CompressorRef::compress_into`] and the owning [`Compressor`] so the dict
+/// branch logic lives in one place regardless of how the tables are stored.
+pub(crate) fn compress_dict_tables(
+    table: &mut HashTableU32U16,
+    pristine: &mut HashTableU32U16,
+    dict: &[u8],
+    input: &[u8],
+    output: &mut [u8],
+) -> Result<usize, CompressError> {
+    if input.len() <= DICT_READONLY_LIMIT && dict.len() + input.len() < u16::MAX as usize {
+        compress_internal::<_, true, true, true, _>(
+            input,
+            0,
+            &mut VerifiedSliceSink::new(output, 0),
+            pristine,
+            dict,
+            dict.len(),
+        )
+    } else if dict.len() + input.len() < u16::MAX as usize {
+        table.clear();
+        compress_with_dict_table(
+            input,
+            &mut VerifiedSliceSink::new(output, 0),
+            table,
+            pristine,
+            dict,
+            dict.len(),
+        )
+    } else {
+        compress_into_sink_with_dict::<true>(input, &mut VerifiedSliceSink::new(output, 0), dict)
+    }
+}
+
+/// Compress `input` using the plain (no-dict) table with epoch-based reuse.
+/// Shared by [`CompressorRef::compress_into`] and the owning [`Compressor`].
+pub(crate) fn compress_plain_table(
+    table: &mut HashTableU32,
+    stream_offset: &mut usize,
+    input: &[u8],
+    output: &mut [u8],
+) -> Result<usize, CompressError> {
+    let offset = prepare_plain_table(table, stream_offset, input.len());
+    if offset > 0 {
+        compress_internal::<_, false, true, false, _>(
+            input,
+            0,
+            &mut VerifiedSliceSink::new(output, 0),
+            table,
+            b"",
+            offset,
+        )
+    } else {
+        compress_internal::<_, false, false, false, _>(
+            input,
+            0,
+            &mut VerifiedSliceSink::new(output, 0),
+            table,
+            b"",
+            0,
+        )
     }
 }
 

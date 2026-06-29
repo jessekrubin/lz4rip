@@ -141,7 +141,7 @@ fn bench_lz4rip(data: &[u8], name: &str, target_ns: u64) -> BenchResult {
     });
 
     BenchResult {
-        codec: "lz4rip".to_string(),
+        codec: LZ4RIP_CODEC.to_string(),
         input_name: name.to_string(),
         input_size: data.len(),
         compressed_size: comp_len,
@@ -275,7 +275,7 @@ fn bench_lz4rip_dict(data: &[u8], dict: &[u8], name: &str, target_ns: u64) -> Be
     });
 
     BenchResult {
-        codec: "lz4rip (dict 2K)".to_string(),
+        codec: LZ4RIP_DICT_CODEC.to_string(),
         input_name: name.to_string(),
         input_size: data.len(),
         compressed_size: comp_len,
@@ -402,8 +402,26 @@ fn save_cache(results: &[BenchResult], codecs: &[&str]) {
     }
 }
 
+// The lz4rip codec is labeled per build: a `--features paranoid` build of this
+// example exercises the pure-safe code path and reports under the "paranoid"
+// names so its results cache separately and appear as their own chart bars.
+#[cfg(not(feature = "paranoid"))]
+const LZ4RIP_CODEC: &str = "lz4rip";
+#[cfg(feature = "paranoid")]
+const LZ4RIP_CODEC: &str = "lz4rip paranoid";
+#[cfg(not(feature = "paranoid"))]
+const LZ4RIP_DICT_CODEC: &str = "lz4rip (dict 2K)";
+#[cfg(feature = "paranoid")]
+const LZ4RIP_DICT_CODEC: &str = "lz4rip paranoid (dict 2K)";
+
+#[cfg(not(feature = "paranoid"))]
 const CODECS: &[&str] = &["C lz4", "lz4rip", "lz4_flex", "lz4_flex unsafe"];
+#[cfg(feature = "paranoid")]
+const CODECS: &[&str] = &["C lz4", "lz4rip paranoid", "lz4_flex", "lz4_flex unsafe"];
+#[cfg(not(feature = "paranoid"))]
 const DICT_CODECS: &[&str] = &["C lz4 (dict 2K)", "lz4rip (dict 2K)"];
+#[cfg(feature = "paranoid")]
+const DICT_CODECS: &[&str] = &["C lz4 (dict 2K)", "lz4rip paranoid (dict 2K)"];
 
 const SILESIA_DOWNLOADS: &[(&str, &str)] = &[
     (
@@ -1098,18 +1116,20 @@ fn main() {
             }
 
             eprintln!("  {codec} x {name}: benchmarking...");
-            let r = match codec {
-                "C lz4" => bench_c_lz4(&data, name, target_ns),
-                "lz4rip" => bench_lz4rip(&data, name, target_ns),
-                "lz4_flex" => bench_lz4_flex_upstream(&data, name, target_ns),
-                "lz4_flex unsafe" => bench_lz4_flex_unsafe(&data, name, target_ns),
-                "C lz4 (dict 2K)" => {
-                    bench_c_lz4_dict(&data, dict_data.as_ref().unwrap(), name, target_ns)
+            let r = if codec == LZ4RIP_CODEC {
+                bench_lz4rip(&data, name, target_ns)
+            } else if codec == LZ4RIP_DICT_CODEC {
+                bench_lz4rip_dict(&data, dict_data.as_ref().unwrap(), name, target_ns)
+            } else {
+                match codec {
+                    "C lz4" => bench_c_lz4(&data, name, target_ns),
+                    "lz4_flex" => bench_lz4_flex_upstream(&data, name, target_ns),
+                    "lz4_flex unsafe" => bench_lz4_flex_unsafe(&data, name, target_ns),
+                    "C lz4 (dict 2K)" => {
+                        bench_c_lz4_dict(&data, dict_data.as_ref().unwrap(), name, target_ns)
+                    }
+                    _ => unreachable!(),
                 }
-                "lz4rip (dict 2K)" => {
-                    bench_lz4rip_dict(&data, dict_data.as_ref().unwrap(), name, target_ns)
-                }
-                _ => unreachable!(),
             };
             results.push(r);
         }
