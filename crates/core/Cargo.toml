@@ -12,3 +12,6 @@ readme = "README.md"
 default = ["std"]
 std = []
 nightly = []
+
+[dev-dependencies]
+proptest = "1.0.0"
