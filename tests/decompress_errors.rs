@@ -62,3 +62,24 @@ fn bug_fuzz_8() {
     ];
     test_decomp(data);
 }
+
+/// Corrupt block whose final match spans the external dictionary and continues
+/// into the output with a remainder shorter than the match offset. The overlap
+/// seed must clamp to the remainder; before the fix it copied a full
+/// `offset`-byte chunk and overshot the output buffer, panicking in
+/// `SliceSink::extend_from_within_overlapping` instead of returning an error.
+/// Found by `fuzz_decomp_corrupt_block`.
+#[test]
+fn dict_overlap_seed_overshoot() {
+    let dict: Vec<u8> = (0..255u32).map(|i| i as u8).collect();
+    let input = [
+        15u8, 45, 0, 32, 3, 3, 34, 32, 13, 31, 31, 31, 0, 31, 31, 31, 13, 1, 255,
+    ];
+    let decomp = Decompressor::with_dict(&dict);
+    // Must return Ok/Err, never panic, across tight output buffers.
+    let _ = decomp.decompress(&input, 51);
+    for buf_size in [50usize, 51, 52, 255] {
+        let mut out = vec![0u8; buf_size];
+        let _ = decomp.decompress_into(&input, &mut out);
+    }
+}
