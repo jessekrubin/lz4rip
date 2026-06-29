@@ -7,6 +7,7 @@ use alloc::boxed::Box;
 ///
 /// Caller must ensure both ranges are valid and `end_offset` bytes of
 /// input are reserved after the match region.
+#[cfg(not(feature = "paranoid"))]
 #[inline]
 pub(crate) fn count_same_bytes_unchecked(
     input: &[u8],
@@ -70,15 +71,71 @@ pub(crate) fn count_same_bytes_unchecked(
     *cur - start
 }
 
+/// Count matching bytes (paranoid: safe `chunks_exact` 8-byte compare).
+///
+/// Uses the same idiom as lz4_flex's safe encoder and the test-only
+/// `count_same_bytes` helper: `chunks_exact(8).zip(..)` avoids a per-iteration
+/// bounds check and autovectorizes, then a byte tail. `to_le` makes
+/// `trailing_zeros` count from the lowest-address mismatching byte.
+#[cfg(feature = "paranoid")]
+#[inline]
+pub(crate) fn count_same_bytes_unchecked(
+    input: &[u8],
+    cur: &mut usize,
+    source: &[u8],
+    candidate: usize,
+    end_offset: usize,
+) -> usize {
+    const STEP: usize = 8;
+    let max_input = input.len().saturating_sub(*cur + end_offset);
+    debug_assert!(candidate <= source.len());
+    let max_cand = source.len().saturating_sub(candidate);
+    let limit = max_input.min(max_cand);
+    let cur_slice = &input[*cur..*cur + limit];
+    let cand_slice = &source[candidate..candidate + limit];
+
+    let mut num = 0;
+    for (a, b) in cur_slice
+        .chunks_exact(STEP)
+        .zip(cand_slice.chunks_exact(STEP))
+    {
+        let av = u64::from_ne_bytes(a.try_into().unwrap());
+        let bv = u64::from_ne_bytes(b.try_into().unwrap());
+        if av == bv {
+            num += STEP;
+        } else {
+            num += ((av ^ bv).to_le().trailing_zeros() / 8) as usize;
+            *cur += num;
+            return num;
+        }
+    }
+    num += cur_slice[num..]
+        .iter()
+        .zip(&cand_slice[num..])
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    *cur += num;
+    num
+}
+
 /// Read 4 bytes from `input` at position `n` without bounds checking.
 ///
 /// # Safety
 /// Caller must ensure `n + 4 <= input.len()`.
+#[cfg(not(feature = "paranoid"))]
 #[inline]
 pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
     debug_assert!(n + 4 <= input.len());
     // SAFETY: caller ensures `n + 4 <= input.len()`.
     unsafe { (input.as_ptr().add(n) as *const u32).read_unaligned() }
+}
+
+/// Read 4 bytes at position `n` (paranoid: bounds-checked, native-endian).
+#[cfg(feature = "paranoid")]
+#[inline]
+pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
+    u32::from_ne_bytes(input[n..n + 4].try_into().unwrap())
 }
 
 /// Read an usize sized "batch" from some position (native-endian).
@@ -91,7 +148,7 @@ pub(crate) fn get_batch_arch(input: &[u8], n: usize) -> usize {
 }
 
 #[inline]
-#[cfg(target_pointer_width = "64")]
+#[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
 unsafe fn get_batch_arch_unchecked(input: &[u8], n: usize) -> usize {
     debug_assert!(n + core::mem::size_of::<usize>() <= input.len());
     (input.as_ptr().add(n) as *const usize).read_unaligned()
@@ -179,7 +236,7 @@ impl HashTable for HashTableU32U16 {
         (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
     }
     #[inline]
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
     fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
@@ -259,7 +316,7 @@ impl HashTable for HashTableU32 {
         }
     }
     #[inline]
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
     fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
