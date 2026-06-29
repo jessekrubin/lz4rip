@@ -6,11 +6,12 @@ Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
 ## Why lz4rip
 
-- **C lz4 speed, safe by construction.** Unsafe is isolated to two files for raw memory ops. See [SAFETY.md](SAFETY.md).
-- **8 KB hash tables.** Half the L1d footprint of C lz4 and lz4_flex.
+- **C lz4 speed, safe by construction.** Unsafe is isolated to a few internal modules for raw memory ops. See [SAFETY.md](SAFETY.md).
+- **Optional zero-unsafe build.** The `paranoid` feature compiles every crate with `#![forbid(unsafe_code)]`, swapping each unchecked op for a safe twin. No `unsafe` at all.
+- **8 KB hash tables, or smaller.** Half the L1d footprint of C lz4 and lz4_flex by default; the table size is a compile-time const generic, so constrained targets can drop to a 2 KB, 1 KB, or 512 B table.
 - **Built-in dictionary training.** `DictTrainer` learns a dictionary from your data. No external tools needed.
 - **Hot-loop friendly.** Epoch-based table reuse skips clearing between calls for small inputs.
-- **`no_std` and no-alloc ready.** Block format works without `std` or even `alloc`. Hash tables live on the stack when `alloc` is off (~8 KB per call). Frame format requires `std`.
+- **`no_std` and no-alloc ready.** Block format works without `std` or even `alloc`. Hash tables live on the stack when `alloc` is off. Frame format requires `std`.
 
 See [DESIGN.md](DESIGN.md) for how it all works.
 
@@ -59,13 +60,61 @@ allocate and require the `alloc` feature.
 
 ### No-alloc / embedded
 
-All `_into` functions and the `CompressorRef`/`DecompressorRef` structs work
-without `alloc`. Hash tables are stack-allocated (~8 KB per compress call).
+All `_into` functions and the `CompressorRef`/`DictCompressorRef`/`DecompressorRef`
+structs work without `alloc`. Hash tables are stack-allocated (8 KB per compress
+call at the standard size).
 
 ```toml
 [dependencies]
 lz4rip = { version = "0.8", default-features = false }
 ```
+
+On memory-constrained targets, pick a smaller hash table via the const-generic
+form. `CompressorRefN::<N>` (no-dict) and `DictCompressorRefN::<N>` (dict) take an
+entry count `N` (power of two, at least `MIN_ENTRIES` = 256). `CompressorRefN::<512>`
+is a 2 KB table; `::<256>` is 1 KB. Smaller tables only trade compression ratio for
+memory, never correctness. The standard `CompressorRef` / `DictCompressorRef` are
+aliases at the default 8 KB size.
+
+```rust
+use lz4rip::block::{CompressorRefN, get_maximum_output_size};
+
+// 2 KB no-dict hash table instead of the default 8 KB.
+let mut comp = CompressorRefN::<512>::new();
+let input = b"telemetry frame payload, repeated fields, repeated fields";
+let mut out = [0u8; 128];
+let n = comp.compress_into(input, &mut out).unwrap();
+# assert!(n > 0);
+```
+
+**Recommended presets.** Measured ratio cost of shrinking the table (no-dict
+across the corpus, dict over synthetic small messages):
+
+| Workload | Preset | Footprint | Ratio cost |
+|---|---|---|---|
+| Dict + small messages (≤ ~1 KB) | `DictCompressorRefN::<256>` | 512 B/table | ~1% |
+| Dict, with margin | `DictCompressorRefN::<512>` | 1 KB/table | ~0.5% |
+| No-dict, messages ≤ ~1 KB | `CompressorRefN::<256>` | 1 KB | ~0% |
+| No-dict, general small | `CompressorRefN::<512>` | 2 KB | small |
+
+For small messages, the workload constrained targets actually compress, table
+size is nearly free: a 2 KB dictionary fills only a few hundred hash buckets, so
+even a 256-entry table covers the useful matches. The larger penalties (+20-30%
+ratio) only appear on 34 KB+ inputs. Smaller tables are often slightly *faster*
+too (less L1d pressure, cheaper clears).
+
+**Landscape context.** LZ4 decompression needs no hash table at all, so
+decode-only on tiny chips is a solved problem (ARM published a 42-instruction
+Cortex-M0 decompressor). Compression is the bottleneck: C lz4 offers
+`LZ4_MEMORY_USAGE` to shrink its table (down to 1 KB at `=10`), but it is a
+global `#define` that rebuilds the library. No other Rust LZ4 crate exposes a
+table-size knob. The const-generic approach here lets you monomorphize different
+sizes in the same binary (e.g. 512 B for telemetry, 8 KB for bulk) with zero
+runtime cost.
+
+For a build with no `unsafe` at all, add the `paranoid` feature (see
+[SAFETY.md](SAFETY.md)). It composes with `no_std`, no-alloc, and the table-size
+knob.
 
 ```rust
 use lz4rip::block::{compress_into, decompress_into, get_maximum_output_size};
@@ -97,15 +146,15 @@ assert_eq!(&output[..m], input);
 ### Dictionary compression
 
 Pre-seed the compressor and decompressor with shared context for better ratios
-on small messages. `Compressor` clones the dictionary into owned storage.
-For zero-copy, use `CompressorRef` / `DecompressorRef`.
+on small messages. `DictCompressor` clones the dictionary into owned storage.
+For zero-copy, use `DictCompressorRef` / `DecompressorRef`.
 
 ```rust
-use lz4rip::block::{Compressor, Decompressor, get_maximum_output_size};
+use lz4rip::block::{DictCompressor, Decompressor, get_maximum_output_size};
 
 let dict = b"shared context bytes...";
-let mut comp = Compressor::with_dict(dict);
-let decomp = Decompressor::new(dict);
+let mut comp = DictCompressor::new(dict);
+let decomp = Decompressor::with_dict(dict);
 
 let input = b"context bytes appear in messages";
 let mut buf = vec![0u8; get_maximum_output_size(input.len())];
@@ -128,7 +177,7 @@ for sample in &samples {
     trainer.add_sample(sample);
 }
 let dict = trainer.train();
-// Use with Compressor::with_dict(&dict) / Decompressor::new(&dict)
+// Use with DictCompressor::new(&dict) / Decompressor::with_dict(&dict)
 ```
 
 ## Frame format

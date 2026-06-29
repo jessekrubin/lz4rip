@@ -6,12 +6,17 @@ use core::fmt;
 use alloc::vec::Vec;
 
 use crate::compress::{
-    compress_dict_tables, get_maximum_output_size, init_dict, CompressorRef, HashTableU32U16,
+    compress_dict_tables, get_maximum_output_size, init_dict, CompressorRefN, HashTableU32U16,
+    DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES,
 };
 use lz4rip_core::CompressError;
 use lz4rip_core::{MINMATCH, WINDOW_SIZE};
 
-/// A reusable block compressor that owns no dictionary.
+/// A reusable no-dict block compressor (owning) with `N` hash-table entries.
+///
+/// [`Compressor`] is the standard-sized alias (8 KB table). Use this generic
+/// form to pick a smaller table, e.g. `CompressorN::<512>::new()` for a 2 KB
+/// table. `N` must be a power of two (checked at compile time).
 ///
 /// This is the ergonomic owning API for use with `alloc`. For a no-alloc
 /// variant, see [`CompressorRef`](crate::CompressorRef). For a dictionary-seeded
@@ -30,16 +35,19 @@ use lz4rip_core::{MINMATCH, WINDOW_SIZE};
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
 #[derive(Debug, Default)]
-pub struct Compressor {
-    inner: CompressorRef,
+pub struct CompressorN<const N: usize = DEFAULT_NODICT_ENTRIES> {
+    inner: CompressorRefN<N>,
 }
 
-impl Compressor {
+/// A reusable no-dict block compressor (owning) with the standard 8 KB table.
+pub type Compressor = CompressorN<DEFAULT_NODICT_ENTRIES>;
+
+impl<const N: usize> CompressorN<N> {
     /// Create a new compressor without a dictionary.
     #[must_use]
     pub fn new() -> Self {
-        Compressor {
-            inner: CompressorRef::new(),
+        CompressorN {
+            inner: CompressorRefN::<N>::new(),
         }
     }
 
@@ -60,7 +68,11 @@ impl Compressor {
     }
 }
 
-/// A reusable block compressor that owns its dictionary.
+/// A reusable dict block compressor (owning) with `N` entries per table.
+///
+/// [`DictCompressor`] is the standard-sized alias (two 8 KB tables). Use this
+/// generic form to pick smaller tables, e.g. `DictCompressorN::<1024>::new(dict)`
+/// for two 2 KB tables. `N` must be a power of two (checked at compile time).
 ///
 /// This is the ergonomic owning dict API for use with `alloc`. For a no-alloc
 /// variant that borrows the dictionary, see
@@ -79,15 +91,18 @@ impl Compressor {
 /// let mut output = vec![0u8; get_maximum_output_size(input.len())];
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
-pub struct DictCompressor {
+pub struct DictCompressorN<const N: usize = DEFAULT_DICT_ENTRIES> {
     /// Trimmed dictionary bytes (empty when the dictionary was shorter than
     /// [`MINMATCH`]).
     dict: Vec<u8>,
-    table: HashTableU32U16,
-    pristine: HashTableU32U16,
+    table: HashTableU32U16<N>,
+    pristine: HashTableU32U16<N>,
 }
 
-impl fmt::Debug for DictCompressor {
+/// A reusable dict block compressor (owning) with the standard 8 KB tables.
+pub type DictCompressor = DictCompressorN<DEFAULT_DICT_ENTRIES>;
+
+impl<const N: usize> fmt::Debug for DictCompressorN<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DictCompressor")
             .field("dict_len", &self.dict.len())
@@ -95,7 +110,7 @@ impl fmt::Debug for DictCompressor {
     }
 }
 
-impl DictCompressor {
+impl<const N: usize> DictCompressorN<N> {
     /// Create a new compressor seeded with an external dictionary.
     ///
     /// The dictionary is cloned into owned storage. If `dict` is longer than the
@@ -111,12 +126,12 @@ impl DictCompressor {
         } else {
             dict
         };
-        let mut pristine = HashTableU32U16::new();
+        let mut pristine = HashTableU32U16::<N>::new();
         let mut dict_ref = trimmed;
         init_dict(&mut pristine, &mut dict_ref);
-        DictCompressor {
+        DictCompressorN {
             dict: trimmed.to_vec(),
-            table: HashTableU32U16::new(),
+            table: HashTableU32U16::<N>::new(),
             pristine,
         }
     }
@@ -130,7 +145,7 @@ impl DictCompressor {
         output: &mut [u8],
     ) -> Result<usize, CompressError> {
         // Split the borrow so the dict and tables can be passed separately.
-        let DictCompressor {
+        let DictCompressorN {
             dict,
             table,
             pristine,

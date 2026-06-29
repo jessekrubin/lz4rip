@@ -263,6 +263,54 @@ fn compressor_ref_dict_u16_boundary_fallback() {
     assert_eq!(decompressed, input);
 }
 
+/// Const-generic table size: a 1 KB no-dict table (`CompressorRefN::<256>`) and
+/// matching owning/dict forms still round-trip correctly. Smaller tables only
+/// trade ratio for memory; they never produce incorrect output.
+#[test]
+fn tiny_table_roundtrip() {
+    use lz4rip::block::{
+        decompress, get_maximum_output_size, CompressorN, CompressorRefN, Decompressor,
+        DictCompressorN, DictCompressorRefN,
+    };
+
+    let input: Vec<u8> = (0u8..=255).cycle().take(20000).collect();
+    let mut output = vec![0u8; get_maximum_output_size(input.len())];
+
+    // No-dict, borrowing, 256 entries (1 KB u32 table).
+    let mut comp = CompressorRefN::<256>::new();
+    let n = comp.compress_into(&input, &mut output).unwrap();
+    assert_eq!(decompress(&output[..n], input.len()).unwrap(), input);
+
+    // No-dict, owning, 512 entries.
+    let mut comp = CompressorN::<512>::new();
+    assert_eq!(
+        decompress(&comp.compress(&input), input.len()).unwrap(),
+        input
+    );
+
+    // Dict, both forms, 1024 entries (2 KB u16 tables).
+    let dict = &input[..4096];
+    let mut comp = DictCompressorRefN::<1024>::new(dict);
+    let n = comp.compress_into(&input, &mut output).unwrap();
+    let decomp = Decompressor::with_dict(dict);
+    assert_eq!(decomp.decompress(&output[..n], input.len()).unwrap(), input);
+
+    let mut comp = DictCompressorN::<1024>::new(dict);
+    let compressed = comp.compress(&input);
+    assert_eq!(decomp.decompress(&compressed, input.len()).unwrap(), input);
+
+    // Dict + input >= 64 KB forces the u16->u32 overflow fallback, which now
+    // builds a `HashTableU32<N>` sized to this compressor's N (256), not a
+    // default 8 KB table.
+    let big: Vec<u8> = (0u8..=255).cycle().take(70_000).collect();
+    let big_dict = vec![b'Z'; 40_000];
+    let mut out2 = vec![0u8; get_maximum_output_size(big.len())];
+    let mut comp = DictCompressorRefN::<256>::new(&big_dict);
+    let n = comp.compress_into(&big, &mut out2).unwrap();
+    let decomp = Decompressor::with_dict(&big_dict);
+    assert_eq!(decomp.decompress(&out2[..n], big.len()).unwrap(), big);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("regressions"))),

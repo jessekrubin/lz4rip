@@ -32,20 +32,53 @@ Below ~50 MB/s, the 8pp ratio difference dominates and bs6 is 1-2% faster end-to
 
 ## Hash tables
 
-Two hash table implementations, both 8 KB, selected by input size:
+Two hash table types, distinguished by stored value width, each generic over a
+compile-time entry count `N` (`crates/encode/src/hashtable.rs`):
 
-| Table | Entries | Value width | Footprint | Used when |
+| Table | Value width | Bytes | Standard `N` | Used by |
 |---|---|---|---|---|
-| `HashTableU32U16` | 4K | 16-bit | 8 KB | dict + input < 64 KB |
-| `HashTableU32` | 2K | 32-bit | 8 KB | larger inputs |
+| `HashTableU32U16<N>` | 16-bit | `2 * N` | `DEFAULT_DICT_ENTRIES` = 4096 (8 KB) | dict path (positions fit `u16`, so dict + input < 64 KB) |
+| `HashTableU32<N>` | 32-bit | `4 * N` | `DEFAULT_NODICT_ENTRIES` = 2048 (8 KB) | no-dict path, and dict path when dict + input >= 64 KB |
 
-Consistent 8 KB L1d footprint. Half the 16 KB that C lz4 (`LZ4_hash4`) and lz4_flex use.
+The **value width** (`u16` vs `u32`) decides which type is correct: `u16` entries
+can only store positions below 64 KB, so they serve the dict path where the
+`dict + input < u16::MAX` guard holds; the no-dict path uses `u32` entries because
+epoch reuse advances a stream offset past 64 KB. **`N` is an independent knob**: it
+sets the entry count, the memory (`2N`/`4N` bytes), and the hash shift
+`64 - N.ilog2()`. `N` must be a power of two and at least `MIN_ENTRIES` (256, an 8-bit index,
+matching C lz4's floor), checked at compile time in `new()`.
 
-`Compressor::with_dict` uses two `HashTableU32U16` tables (8 KB total): a cleared main table and a read-only pristine table probed on main-table miss. Falls back to the single-table free-function path when dict+input exceeds u16 range.
+Which table a given config uses:
 
-`Compressor` without dict uses epoch-based table reuse for inputs up to 8 KB: instead of clearing the hash table between calls, it advances a stream offset so stale entries fall outside `MAX_DISTANCE` and are rejected by the distance check.
+- **No-dict** (`CompressorRef`/`Compressor`): always `HashTableU32<N>`. `N` is honored for every call. Epoch-based reuse for inputs up to 8 KB advances a stream offset instead of clearing, so stale entries fall outside `MAX_DISTANCE` and are rejected by the distance check.
+- **Dict** (`DictCompressorRef`/`DictCompressor`) with dict + input < 64 KB: two `HashTableU32U16<N>` tables, a cleared main table and a read-only pristine table probed on main-table miss. `N` is honored.
+- **Dict** with dict + input >= 64 KB: positions exceed `u16`, so it builds a fresh `HashTableU32<N>` sized to the compressor's own `N` and runs the single-table path. `N` is honored here too: a tiny-`N` dict compressor stays small even on the overflow path (relevant for no-alloc, where that table is a stack frame). At the standard `N` (4096) this is a 16 KB `u32` table, matching C lz4's default table size for large inputs.
 
-Selection happens at the call site in `compress_into_sink_with_dict` in `crates/encode/src/compress.rs`. Both types implement the `HashTable` trait so the core loop is generic.
+The standard `N` gives a consistent 8 KB L1d footprint, half the 16 KB that C lz4
+(`LZ4_hash4`) and lz4_flex use. Smaller `N` (e.g. `CompressorRefN::<512>` for a
+2 KB table) trades ratio for memory on constrained targets. Both types implement
+the `HashTable` trait so the core loop is generic over `T` (and thus over `N`).
+
+### Picking a table size
+
+Measured ratio cost of shrinking the table (no-dict across the corpus, dict over
+synthetic small messages):
+
+| Workload | `N` = 256 (smallest) vs default | Notes |
+|---|---|---|
+| Dict, ~180 B messages | +1.1% size | only the pristine table is touched (readonly path) |
+| Dict, ~700 B messages | +0.2% size | main + pristine path |
+| No-dict, ≤ 1 KB inputs | ~0% | too few positions to fill more buckets |
+| No-dict, 34 KB+ inputs | +20-30% size | table is the limiting factor |
+
+The cost is driven by input size, not whether a dict is used. For the small
+messages that constrained targets actually compress, the table is far from full
+(a 2 KB dict hashes to only ~680 buckets, a short message adds a few hundred more),
+so dropping to a 256- or 512-entry table is nearly free, and often slightly faster
+from reduced L1d pressure. The large penalties appear only once inputs exceed the
+table's capacity (tens of KB). Recommended presets: `DictCompressorRefN::<256>`
+(512 B/table) for dict + small messages, `CompressorRefN::<256>`/`<512>` (1-2 KB)
+for no-dict small messages.
 
 ## 5-byte hash
 
@@ -53,7 +86,7 @@ On 64-bit targets, C lz4 hashes 4 input bytes with a 32-bit KNUTH multiplicative
 
 The PRIME5 constant is endianness-aware: different values for little-endian and big-endian targets in `crates/encode/src/hashtable.rs`, since the hash input comes from native-endian reads.
 
-Hash shifts are derived from the table size: `>> (64 - ilog2(HASHTABLE_SIZE))`. `HashTableU32U16` uses `>> 52` (4K entries), `HashTableU32` uses `>> 53` (2K entries).
+Hash shifts are derived from the const-generic entry count: `>> (64 - N.ilog2())`, which folds to an immediate at monomorphization (no runtime cost, no register holding the size). At the standard sizes `HashTableU32U16<4096>` uses `>> 52` and `HashTableU32<2048>` uses `>> 53`.
 
 On 32-bit targets, both hash tables fall back to a 4-byte KNUTH multiplicative hash, matching C lz4's approach.
 
@@ -65,14 +98,14 @@ Two separate `#[inline(never)]` compression hot loops in `crates/encode/src/comp
 
 | Parameter | Variants | Effect |
 |---|---|---|
-| `T: HashTable` | `HashTableU32U16`, `HashTableU32` | Table size and value width |
+| `T: HashTable` | `HashTableU32U16<N>`, `HashTableU32<N>` | Value width and entry count |
 | `USE_DICT: bool` | true, false | Dictionary lookup code |
 | `HAS_OFFSET: bool` | true, false | Offset arithmetic for dict positions |
 | `S: Sink` | `SliceSink`, `VerifiedSliceSink` | Bounds-checked vs pre-verified writes |
 
 When `USE_DICT=false`, all dictionary code is dead and eliminated by LLVM. When `HAS_OFFSET=false`, offset is a compile-time zero. LLVM specializes each call site independently without excessive code duplication.
 
-`compress_with_dict_table` handles the dual-table dict path (`CompressorRef::with_dict`). Generic over `T: HashTable` and `S: Sink`. Takes both a cleared main table and a read-only pristine table, probing the pristine table on main-table miss.
+`compress_with_dict_table` handles the dual-table dict path (`DictCompressorRef`/`DictCompressor`). Generic over `T: HashTable` and `S: Sink`. Takes both a cleared main table and a read-only pristine table, probing the pristine table on main-table miss.
 
 `decompress_internal` in `crates/decode/src/decompress.rs` is generic over `USE_DICT: bool` and `S: Sink` (only `SliceSink` in practice). Fast path: unchecked reads via `primitives.rs` in the safe region. Slow path: bounds-checked near buffer end.
 
@@ -88,22 +121,25 @@ C lz4 uses the same technique. lz4_flex does not.
 
 ## Unsafe boundary
 
-All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in four internal modules across two crates (16 blocks total):
+All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in three internal modules across two crates (15 blocks total):
 
 - `crates/encode/src/hashtable.rs` (2 blocks): `count_same_bytes_unchecked`, `get_batch_unchecked`. Each has `debug_assert` guards on bounds.
 - `crates/encode/src/verified_sink.rs` (2 blocks): `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
-- `crates/encode/src/compressor.rs` (1 block): `from_raw_parts` extending the dict slice lifetime for the self-referential `Compressor` wrapper.
 - `crates/decode/src/primitives.rs` (11 blocks): unchecked memory reads (`read_byte_unchecked`, `read_u16_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`. Each has `debug_assert` guards on bounds.
 
+`crates/encode/src/compressor.rs` is itself `#[forbid(unsafe_code)]`: the owning `Compressor`/`DictCompressor` hold their dictionary and hash tables as sibling fields, so the former self-referential `from_raw_parts` is gone.
+
 The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies in `primitives.rs` are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
+
+The `paranoid` feature (see [SAFETY.md](SAFETY.md)) replaces all 15 blocks with safe twins and adds `#![forbid(unsafe_code)]` to every crate, for a build with no `unsafe` at all.
 
 ## Dictionary compression
 
 Dictionary initialization in `init_dict` hashes every 3rd byte of the dictionary, not every byte. This reduces setup cost while maintaining reasonable match coverage.
 
-`Compressor::with_dict` hashes the dictionary once into a read-only `HashTableU32U16` (4 KB). Each `compress_into` call clears the 4 KB main table and probes the pristine table on miss. The `Compressor` is structured as a `Plain`/`Dict` enum so each variant holds only the tables it needs.
+`DictCompressorRef::new` / `DictCompressor::new` hash the dictionary once into a read-only pristine `HashTableU32U16<N>`. Each `compress_into` call clears the main table and probes the pristine table on miss. Dict and no-dict are separate types (`DictCompressorRef` vs `CompressorRef`, `DictCompressor` vs `Compressor`) rather than a `Plain`/`Dict` enum, so a no-dict compressor carries only its single table and the owning dict type needs no self-referential `unsafe`.
 
-Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB.
+Dictionaries larger than 64 KB (`WINDOW_SIZE`) are trimmed to the last 64 KB; dictionaries shorter than `MINMATCH` (4 bytes) are ignored (use the no-dict type).
 
 ## Crate split
 

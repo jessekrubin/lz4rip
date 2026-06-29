@@ -84,13 +84,16 @@ pub mod block {
     pub use lz4rip_decode::{decompress_into, decompress_into_with_dict, DecompressorRef};
     pub use lz4rip_encode::{
         compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef,
-        DictCompressorRef,
+        CompressorRefN, DictCompressorRef, DictCompressorRefN, DEFAULT_DICT_ENTRIES,
+        DEFAULT_NODICT_ENTRIES, MIN_ENTRIES,
     };
 
     #[cfg(feature = "alloc")]
     pub use lz4rip_decode::{decompress, Decompressor};
     #[cfg(feature = "alloc")]
-    pub use lz4rip_encode::{compress, Compressor, DictCompressor, DictTrainer};
+    pub use lz4rip_encode::{
+        compress, Compressor, CompressorN, DictCompressor, DictCompressorN, DictTrainer,
+    };
 }
 
 #[cfg(feature = "frame")]

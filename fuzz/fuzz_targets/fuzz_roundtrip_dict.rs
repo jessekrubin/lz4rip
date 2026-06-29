@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use lz4rip::block::{Compressor, Decompressor};
+use lz4rip::block::{Decompressor, DictCompressor};
 
 /// Round-trip with external dictionary. Targets:
 /// - Dict exactly at WINDOW_SIZE (65536) boundary
@@ -29,13 +29,11 @@ fuzz_target!(|input: Input| {
     let dict_len = input.dict.len().min(128 * 1024);
     let dict = &input.dict[..dict_len];
 
-    let mut compressor = Compressor::with_dict(dict);
+    let mut compressor = DictCompressor::new(dict);
     let decompressor = Decompressor::with_dict(dict);
 
     let compressed = compressor.compress(&payload);
-    let decompressed = decompressor
-        .decompress(&compressed, payload.len())
-        .unwrap();
+    let decompressed = decompressor.decompress(&compressed, payload.len()).unwrap();
     assert_eq!(payload, decompressed);
 
     // Into-buffer variant
