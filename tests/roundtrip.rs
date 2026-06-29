@@ -251,12 +251,12 @@ fn compressor_ref_epoch_reuse() {
 /// falls back from compress_with_dict_table to compress_internal.
 #[test]
 fn compressor_ref_dict_u16_boundary_fallback() {
-    use lz4rip::block::{Compressor, Decompressor};
+    use lz4rip::block::{Decompressor, DictCompressor};
 
     let dict = vec![b'A'; 32768];
     let input: Vec<u8> = (0u8..=255).cycle().take(40000).collect();
 
-    let mut comp = Compressor::with_dict(&dict);
+    let mut comp = DictCompressor::new(&dict);
     let compressed = comp.compress(&input);
     let decomp = Decompressor::with_dict(&dict);
     let decompressed = decomp.decompress(&compressed, input.len()).unwrap();

@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use lz4rip::block::{compress, decompress, Compressor, Decompressor};
+use lz4rip::block::{compress, decompress, Decompressor, DictCompressor};
 
 fn main() {
     // Block format
@@ -13,7 +13,7 @@ fn main() {
     // Block format with dictionary
     let dict = br#"{"sensor_id":"","temperature":0.0,"humidity":0.0,"timestamp":"2025-01-01T00:00:00Z","location":{"building":"","floor":0,"room":""},"status":"online"}"#;
 
-    let mut comp = Compressor::with_dict(dict);
+    let mut comp = DictCompressor::new(dict);
     let msg = br#"{"sensor_id":"env-7f3a","temperature":22.4,"humidity":51.3,"timestamp":"2025-06-04T14:30:07Z","location":{"building":"HQ","floor":3,"room":"3-117"},"status":"online"}"#;
     let compressed = comp.compress(msg);
     let no_dict = compress(msg);

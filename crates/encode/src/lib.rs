@@ -23,9 +23,10 @@ mod verified_sink;
 pub use compress::compress;
 pub use compress::{
     compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef,
+    DictCompressorRef,
 };
 #[cfg(feature = "alloc")]
-pub use compressor::Compressor;
+pub use compressor::{Compressor, DictCompressor};
 #[cfg(feature = "alloc")]
 pub use dict::DictTrainer;
 pub use lz4rip_core::CompressError;

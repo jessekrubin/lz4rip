@@ -537,81 +537,28 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 /// let mut output = vec![0u8; get_maximum_output_size(input.len())];
 /// let compressed_len = comp.compress_into(input, &mut output).unwrap();
 /// ```
-pub struct CompressorRef<'a> {
-    tables: CompressorTables<'a>,
+pub struct CompressorRef {
+    table: HashTableU32,
+    stream_offset: usize,
 }
 
-// Without `alloc`, hash tables are stack-allocated arrays, so the `Dict`
-// variant is unavoidably ~16 KB. Boxing the large fields is impossible without
-// a heap, and the variant size is intentional, so the lint does not apply here.
-#[cfg_attr(not(feature = "alloc"), allow(clippy::large_enum_variant))]
-enum CompressorTables<'a> {
-    Plain {
-        table: HashTableU32,
-        stream_offset: usize,
-    },
-    Dict {
-        table: HashTableU32U16,
-        pristine: HashTableU32U16,
-        dict: &'a [u8],
-    },
-}
-
-impl fmt::Debug for CompressorRef<'_> {
+impl fmt::Debug for CompressorRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.tables {
-            CompressorTables::Plain { .. } => f
-                .debug_struct("CompressorRef")
-                .field("dict_len", &0)
-                .finish(),
-            CompressorTables::Dict { dict, .. } => f
-                .debug_struct("CompressorRef")
-                .field("dict_len", &dict.len())
-                .finish(),
-        }
+        f.debug_struct("CompressorRef").finish_non_exhaustive()
     }
 }
 
-impl CompressorRef<'static> {
+impl CompressorRef {
+    const EPOCH_THRESHOLD: usize = 8 * 1024;
+
     /// Create a new compressor without a dictionary.
     #[must_use]
     pub fn new() -> Self {
         CompressorRef {
-            tables: CompressorTables::Plain {
-                table: HashTableU32::new(),
-                stream_offset: 0,
-            },
+            table: HashTableU32::new(),
+            stream_offset: 0,
         }
     }
-}
-
-impl<'a> CompressorRef<'a> {
-    /// Create a new compressor seeded with an external dictionary.
-    ///
-    /// If `dict` is shorter than 4 bytes, it is ignored.
-    #[must_use]
-    pub fn with_dict(dict: &'a [u8]) -> Self {
-        if dict.len() < MINMATCH {
-            return CompressorRef::new();
-        }
-        let trimmed = if dict.len() > WINDOW_SIZE {
-            &dict[dict.len() - WINDOW_SIZE..]
-        } else {
-            dict
-        };
-        let mut pristine = HashTableU32U16::new();
-        let mut dict_ref = trimmed;
-        init_dict(&mut pristine, &mut dict_ref);
-        CompressorRef {
-            tables: CompressorTables::Dict {
-                table: HashTableU32U16::new(),
-                pristine,
-                dict: trimmed,
-            },
-        }
-    }
-
-    const EPOCH_THRESHOLD: usize = 8 * 1024;
 
     /// Compress `input` into `output`, returning the number of compressed bytes.
     ///
@@ -621,17 +568,92 @@ impl<'a> CompressorRef<'a> {
         input: &[u8],
         output: &mut [u8],
     ) -> Result<usize, CompressError> {
-        match &mut self.tables {
-            CompressorTables::Dict {
-                table,
-                pristine,
-                dict,
-            } => compress_dict_tables(table, pristine, dict, input, output),
-            CompressorTables::Plain {
-                table,
-                stream_offset,
-            } => compress_plain_table(table, stream_offset, input, output),
+        compress_plain_table(&mut self.table, &mut self.stream_offset, input, output)
+    }
+
+    /// Compress `input` into a new `Vec<u8>`.
+    #[cfg(feature = "alloc")]
+    pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
+        let max_compressed = get_maximum_output_size(input.len());
+        let mut compressed = vec![0u8; max_compressed];
+        let compressed_len = self.compress_into(input, &mut compressed).unwrap();
+        compressed.truncate(compressed_len);
+
+        compressed
+    }
+}
+
+/// A reusable block compressor seeded with an external dictionary that it
+/// borrows.
+///
+/// This is the no-alloc dict API. With `alloc`, use
+/// [`DictCompressor`](crate::DictCompressor) instead. Without a dictionary, use
+/// [`CompressorRef`].
+///
+/// # Example
+/// ```
+/// use lz4rip_encode::{DictCompressorRef, get_maximum_output_size};
+///
+/// let dict = b"the quick brown fox";
+/// let mut comp = DictCompressorRef::new(dict);
+/// let input = b"the quick brown fox jumps";
+/// let mut output = vec![0u8; get_maximum_output_size(input.len())];
+/// let compressed_len = comp.compress_into(input, &mut output).unwrap();
+/// ```
+pub struct DictCompressorRef<'a> {
+    table: HashTableU32U16,
+    pristine: HashTableU32U16,
+    dict: &'a [u8],
+}
+
+impl fmt::Debug for DictCompressorRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DictCompressorRef")
+            .field("dict_len", &self.dict.len())
+            .finish()
+    }
+}
+
+impl<'a> DictCompressorRef<'a> {
+    /// Create a new compressor seeded with an external dictionary.
+    ///
+    /// If `dict` is longer than the LZ4 window it is trimmed to the last
+    /// [`WINDOW_SIZE`](lz4rip_core::WINDOW_SIZE) bytes. A dictionary shorter than
+    /// 4 bytes is ignored (no dict matches); use [`CompressorRef`] for that case.
+    #[must_use]
+    pub fn new(dict: &'a [u8]) -> Self {
+        let trimmed = if dict.len() < MINMATCH {
+            b"".as_slice()
+        } else if dict.len() > WINDOW_SIZE {
+            &dict[dict.len() - WINDOW_SIZE..]
+        } else {
+            dict
+        };
+        let mut pristine = HashTableU32U16::new();
+        let mut dict_ref = trimmed;
+        init_dict(&mut pristine, &mut dict_ref);
+        DictCompressorRef {
+            table: HashTableU32U16::new(),
+            pristine,
+            dict: trimmed,
         }
+    }
+
+    /// Compress `input` into `output`, returning the number of compressed bytes.
+    ///
+    /// `output` must be at least [`get_maximum_output_size`]`(input.len())` bytes.
+    pub fn compress_into(
+        &mut self,
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, CompressError> {
+        compress_dict_tables(
+            &mut self.table,
+            &mut self.pristine,
+            self.dict,
+            input,
+            output,
+        )
     }
 
     /// Compress `input` into a new `Vec<u8>`.
@@ -734,7 +756,7 @@ fn prepare_plain_table(
     offset
 }
 
-impl Default for CompressorRef<'static> {
+impl Default for CompressorRef {
     fn default() -> Self {
         Self::new()
     }
