@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Dictionary decompression no longer panics on corrupt input where a match spans the external dictionary and continues into the output with a remainder shorter than the match offset. `SliceSink::extend_from_within_overlapping` now clamps its overlap seed to the remainder (matching `copy_within_overlapping`), so such input returns an error instead of overshooting the output buffer. Found by `fuzz_decomp_corrupt_block`.
+
 ## [0.9.3] - 2026-06-28
 
 ### Changed

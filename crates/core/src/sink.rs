@@ -87,8 +87,14 @@ impl Sink for SliceSink<'_> {
             let val = self.output[start];
             self.output[self.pos..self.pos + num_bytes].fill(val);
         } else {
-            self.output.copy_within(start..start + offset, self.pos);
-            let mut copied = offset;
+            // Seed at most `num_bytes` bytes. When a dict-spanning match leaves
+            // an output remainder shorter than `offset`, copying a full
+            // `offset`-byte chunk would overshoot the output buffer even though
+            // the caller's `pos + num_bytes <= capacity` check held. The unsafe
+            // `copy_within_overlapping` clamps the same way (`offset.min(len)`).
+            let initial = offset.min(num_bytes);
+            self.output.copy_within(start..start + initial, self.pos);
+            let mut copied = initial;
             while copied < num_bytes {
                 let n = copied.min(num_bytes - copied);
                 let src = self.pos;
