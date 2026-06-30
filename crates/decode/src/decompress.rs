@@ -92,7 +92,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     loop {
         let in_safe_region = input_pos < safe_input_pos;
         let token = if in_safe_region {
-            crate::primitives::read_byte_unchecked(input, input_pos)
+            crate::primitives::read_byte_inbounds(input, input_pos)
         } else {
             *input
                 .get(input_pos)
@@ -112,7 +112,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             let match_nib = (token & 0xF) as usize;
 
             let offset =
-                crate::primitives::read_u16_unchecked(input, input_pos + literal_length) as usize;
+                crate::primitives::read_u16_inbounds(input, input_pos + literal_length) as usize;
             if offset == 0 {
                 return Err(DecompressError::OffsetZero);
             }

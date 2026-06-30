@@ -9,7 +9,7 @@ use alloc::boxed::Box;
 /// input are reserved after the match region.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn count_same_bytes_unchecked(
+pub(crate) fn count_same_bytes_inbounds(
     input: &[u8],
     cur: &mut usize,
     source: &[u8],
@@ -79,7 +79,7 @@ pub(crate) fn count_same_bytes_unchecked(
 /// `trailing_zeros` count from the lowest-address mismatching byte.
 #[cfg(feature = "paranoid")]
 #[inline]
-pub(crate) fn count_same_bytes_unchecked(
+pub(crate) fn count_same_bytes_inbounds(
     input: &[u8],
     cur: &mut usize,
     source: &[u8],
@@ -125,7 +125,7 @@ pub(crate) fn count_same_bytes_unchecked(
 /// Caller must ensure `n + 4 <= input.len()`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
+pub(crate) fn get_batch_inbounds(input: &[u8], n: usize) -> u32 {
     debug_assert!(n + 4 <= input.len());
     // SAFETY: caller ensures `n + 4 <= input.len()`.
     unsafe { (input.as_ptr().add(n) as *const u32).read_unaligned() }
@@ -134,7 +134,7 @@ pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
 /// Read 4 bytes at position `n` (paranoid: bounds-checked, native-endian).
 #[cfg(feature = "paranoid")]
 #[inline]
-pub(crate) fn get_batch_unchecked(input: &[u8], n: usize) -> u32 {
+pub(crate) fn get_batch_inbounds(input: &[u8], n: usize) -> u32 {
     u32::from_ne_bytes(input[n..n + 4].try_into().unwrap())
 }
 
@@ -178,7 +178,7 @@ pub(crate) trait HashTable {
     ///
     /// Default delegates to the checked [`get_hash_at`](Self::get_hash_at).
     #[inline]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+    fn get_hash_at_inbounds(input: &[u8], pos: usize) -> usize {
         Self::get_hash_at(input, pos)
     }
 }
@@ -261,7 +261,7 @@ impl<const N: usize> HashTable for HashTableU32U16<N> {
     }
     #[inline]
     #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+    fn get_hash_at_inbounds(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
         (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
@@ -346,7 +346,7 @@ impl<const N: usize> HashTable for HashTableU32<N> {
     }
     #[inline]
     #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
-    fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
+    fn get_hash_at_inbounds(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
         (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
