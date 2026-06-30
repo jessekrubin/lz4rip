@@ -6,10 +6,10 @@ use std::{
 };
 use twox_hash::XxHash32;
 
+use super::Error;
 use super::header::{
     BlockInfo, BlockMode, FrameInfo, MAGIC_NUMBER_SIZE, MAX_FRAME_INFO_SIZE, MIN_FRAME_INFO_SIZE,
 };
-use super::Error;
 use lz4rip_core::{SliceSink, WINDOW_SIZE};
 use lz4rip_decode::decompress_internal;
 

@@ -81,18 +81,18 @@
 /// ```
 pub mod block {
     pub use lz4rip_core::{CompressError, DecompressError};
-    pub use lz4rip_decode::{decompress_into, decompress_into_with_dict, DecompressorRef};
+    pub use lz4rip_decode::{DecompressorRef, decompress_into, decompress_into_with_dict};
     pub use lz4rip_encode::{
-        compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef,
-        CompressorRefN, DictCompressorRef, DictCompressorRefN, DEFAULT_DICT_ENTRIES,
-        DEFAULT_NODICT_ENTRIES, MIN_ENTRIES,
+        CompressorRef, CompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES,
+        DictCompressorRef, DictCompressorRefN, MIN_ENTRIES, compress_into, compress_into_with_dict,
+        get_maximum_output_size,
     };
 
     #[cfg(feature = "alloc")]
-    pub use lz4rip_decode::{decompress, Decompressor};
+    pub use lz4rip_decode::{Decompressor, decompress};
     #[cfg(feature = "alloc")]
     pub use lz4rip_encode::{
-        compress, Compressor, CompressorN, DictCompressor, DictCompressorN, DictTrainer,
+        Compressor, CompressorN, DictCompressor, DictCompressorN, DictTrainer, compress,
     };
 }
 

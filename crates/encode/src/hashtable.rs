@@ -151,7 +151,7 @@ pub(crate) fn get_batch_arch(input: &[u8], n: usize) -> usize {
 #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
 unsafe fn get_batch_arch_unchecked(input: &[u8], n: usize) -> usize {
     debug_assert!(n + core::mem::size_of::<usize>() <= input.len());
-    (input.as_ptr().add(n) as *const usize).read_unaligned()
+    unsafe { (input.as_ptr().add(n) as *const usize).read_unaligned() }
 }
 
 // Knuth's multiplicative hash constant (golden ratio * 2^32).

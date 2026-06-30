@@ -3,9 +3,9 @@
 use core::fmt;
 
 use lz4rip_core::DecompressError;
+use lz4rip_core::MINMATCH;
 use lz4rip_core::Sink;
 use lz4rip_core::SliceSink;
-use lz4rip_core::MINMATCH;
 
 #[cfg(feature = "alloc")]
 use alloc::vec;
@@ -532,7 +532,9 @@ mod test {
         ));
         assert!(matches!(
             decompress(
-                &[0x0E, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                &[
+                    0x0E, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ],
                 256
             ),
             Err(DecompressError::OffsetOutOfBounds)

@@ -2,7 +2,7 @@
 name = "lz4rip-encode"
 description = "LZ4 block compression for lz4rip."
 version = "0.9.2"
-edition = "2021"
+edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/paddor/lz4rip"

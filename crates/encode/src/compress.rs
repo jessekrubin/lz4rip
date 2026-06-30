@@ -7,12 +7,12 @@ use crate::verified_sink::VerifiedSliceSink;
 #[cfg(feature = "alloc")]
 use alloc::vec;
 use lz4rip_core::CompressError;
-use lz4rip_core::Sink;
 use lz4rip_core::END_OFFSET;
 use lz4rip_core::LZ4_MIN_LENGTH;
 use lz4rip_core::MAX_DISTANCE;
 use lz4rip_core::MFLIMIT;
 use lz4rip_core::MINMATCH;
+use lz4rip_core::Sink;
 use lz4rip_core::WINDOW_SIZE;
 
 #[cfg(feature = "alloc")]
@@ -117,10 +117,12 @@ pub fn compress_internal<
     if USE_DICT {
         assert!(ext_dict.len() <= WINDOW_SIZE);
         assert!(ext_dict.len() <= input_stream_offset);
-        assert!(input_stream_offset
-            .checked_add(input.len())
-            .and_then(|i| i.checked_add(ext_dict.len()))
-            .is_some_and(|i| i <= isize::MAX as usize));
+        assert!(
+            input_stream_offset
+                .checked_add(input.len())
+                .and_then(|i| i.checked_add(ext_dict.len()))
+                .is_some_and(|i| i <= isize::MAX as usize)
+        );
     } else {
         assert!(ext_dict.is_empty());
     }
@@ -285,10 +287,12 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
     debug_assert_eq!(input_stream_offset, ext_dict.len());
     assert!(ext_dict.len() <= WINDOW_SIZE);
     assert!(ext_dict.len() <= input_stream_offset);
-    assert!(input_stream_offset
-        .checked_add(input.len())
-        .and_then(|i| i.checked_add(ext_dict.len()))
-        .is_some_and(|i| i <= isize::MAX as usize));
+    assert!(
+        input_stream_offset
+            .checked_add(input.len())
+            .and_then(|i| i.checked_add(ext_dict.len()))
+            .is_some_and(|i| i <= isize::MAX as usize)
+    );
     if output.capacity() - output.pos() < get_maximum_output_size(input.len()) {
         return Err(CompressError::OutputTooSmall);
     }

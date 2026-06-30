@@ -7,14 +7,14 @@ use twox_hash::XxHash32;
 
 use lz4rip_core::{SliceSink, WINDOW_SIZE};
 use lz4rip_encode::{
-    compress_internal, compress_into_sink_with_dict, get_maximum_output_size, HashTable,
-    HashTableU32,
+    HashTable, HashTableU32, compress_internal, compress_into_sink_with_dict,
+    get_maximum_output_size,
 };
 
 use super::Error;
 use super::{
-    header::{BlockInfo, BlockMode, FrameInfo, BLOCK_INFO_SIZE, MAX_FRAME_INFO_SIZE},
     BlockSize,
+    header::{BLOCK_INFO_SIZE, BlockInfo, BlockMode, FrameInfo, MAX_FRAME_INFO_SIZE},
 };
 
 fn vec_sink_for_compression(

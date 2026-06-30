@@ -22,9 +22,9 @@ mod verified_sink;
 #[cfg(feature = "alloc")]
 pub use compress::compress;
 pub use compress::{
-    compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef, CompressorRefN,
-    DictCompressorRef, DictCompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES,
-    MIN_ENTRIES,
+    CompressorRef, CompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES, DictCompressorRef,
+    DictCompressorRefN, MIN_ENTRIES, compress_into, compress_into_with_dict,
+    get_maximum_output_size,
 };
 #[cfg(feature = "alloc")]
 pub use compressor::{Compressor, CompressorN, DictCompressor, DictCompressorN};

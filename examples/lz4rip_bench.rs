@@ -12,7 +12,7 @@ struct LZ4Stream {
     _opaque: [u8; 0],
 }
 
-extern "C" {
+unsafe extern "C" {
     fn LZ4_createStream() -> *mut LZ4Stream;
     fn LZ4_freeStream(stream: *mut LZ4Stream) -> c_int;
     fn LZ4_resetStream_fast(stream: *mut LZ4Stream);

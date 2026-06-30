@@ -1,6 +1,6 @@
 use lz4rip::block::{
-    compress, compress_into_with_dict, decompress_into_with_dict, get_maximum_output_size,
-    Decompressor, DecompressorRef, DictCompressor, DictCompressorRef, DictTrainer,
+    Decompressor, DecompressorRef, DictCompressor, DictCompressorRef, DictTrainer, compress,
+    compress_into_with_dict, decompress_into_with_dict, get_maximum_output_size,
 };
 use more_asserts::assert_lt;
 
