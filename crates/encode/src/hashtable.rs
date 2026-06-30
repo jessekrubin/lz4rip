@@ -87,9 +87,10 @@ pub(crate) fn count_same_bytes_inbounds(
     end_offset: usize,
 ) -> usize {
     const STEP: usize = 8;
-    let max_input = input.len().saturating_sub(*cur + end_offset);
+    debug_assert!(*cur + end_offset <= input.len());
     debug_assert!(candidate <= source.len());
-    let max_cand = source.len().saturating_sub(candidate);
+    let max_input = input.len() - *cur - end_offset;
+    let max_cand = source.len() - candidate;
     let limit = max_input.min(max_cand);
     let cur_slice = &input[*cur..*cur + limit];
     let cand_slice = &source[candidate..candidate + limit];
