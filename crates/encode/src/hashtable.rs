@@ -183,40 +183,64 @@ pub trait HashTable {
     }
 }
 
-const HASHTABLE_SIZE_U32: usize = 2 * 1024;
-const HASHTABLE_SIZE_U16: usize = 4 * 1024;
+/// Default entry count for the no-dict (`u32`-valued) table: 2048 x 4 B = 8 KB.
+pub const DEFAULT_NODICT_ENTRIES: usize = 2 * 1024;
+/// Default entry count for the dict (`u16`-valued) tables: 4096 x 2 B = 8 KB.
+pub const DEFAULT_DICT_ENTRIES: usize = 4 * 1024;
+/// Smallest permitted hash-table entry count: 256 (an 8-bit index). Below this
+/// the hash collapses 5 input bytes onto too few buckets to find matches, so the
+/// compressor degrades to emitting literals. Matches C lz4's floor
+/// (`LZ4_MEMORY_USAGE_MIN = 10` -> `1 << (10 - 2)` = 256-entry table).
+pub const MIN_ENTRIES: usize = 256;
+
+/// Compile-time validation of a hash-table entry count `N`.
+///
+/// `N` must be a power of two so the index shift `64 - N.ilog2()` maps the hash
+/// onto exactly `[0, N)`, and at least [`MIN_ENTRIES`] so the shift is in range
+/// and the table carries enough index bits to match.
+const fn assert_valid_entries(n: usize) {
+    assert!(
+        n.is_power_of_two(),
+        "hash table entry count must be a power of two"
+    );
+    assert!(
+        n >= MIN_ENTRIES,
+        "hash table entry count must be at least MIN_ENTRIES (256)"
+    );
+}
 
 #[cfg(target_pointer_width = "64")]
 const U32_HASH_BYTES: usize = 5;
 
-/// A 4K entry hash table using 16-bit values (8KB total).
+/// A hash table with `N` entries using 16-bit values (`2 * N` bytes).
+///
+/// `N` must be a power of two (checked at compile time in [`new`](Self::new)).
+/// Stored positions must fit in `u16`, so this is used only when dict + input
+/// stays below 64 KB.
 #[derive(Debug)]
 #[repr(align(64))]
-pub(crate) struct HashTableU32U16 {
+pub(crate) struct HashTableU32U16<const N: usize = DEFAULT_DICT_ENTRIES> {
     #[cfg(feature = "alloc")]
-    dict: Box<[u16; HASHTABLE_SIZE_U16]>,
+    dict: Box<[u16; N]>,
     #[cfg(not(feature = "alloc"))]
-    dict: [u16; HASHTABLE_SIZE_U16],
+    dict: [u16; N],
 }
-impl HashTableU32U16 {
+impl<const N: usize> HashTableU32U16<N> {
     #[cfg(feature = "alloc")]
     #[inline]
     pub(crate) fn new() -> Self {
-        let dict = alloc::vec![0; HASHTABLE_SIZE_U16]
-            .into_boxed_slice()
-            .try_into()
-            .unwrap();
+        const { assert_valid_entries(N) };
+        let dict = alloc::vec![0; N].into_boxed_slice().try_into().unwrap();
         Self { dict }
     }
     #[cfg(not(feature = "alloc"))]
     #[inline]
     pub(crate) fn new() -> Self {
-        Self {
-            dict: [0u16; HASHTABLE_SIZE_U16],
-        }
+        const { assert_valid_entries(N) };
+        Self { dict: [0u16; N] }
     }
 }
-impl HashTable for HashTableU32U16 {
+impl<const N: usize> HashTable for HashTableU32U16<N> {
     #[inline]
     fn get_at(&self, idx: usize) -> usize {
         self.dict[idx] as usize
@@ -233,54 +257,53 @@ impl HashTable for HashTableU32U16 {
     #[cfg(target_pointer_width = "64")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = get_batch_arch(input, pos);
-        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
+        (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
     }
     #[inline]
     #[cfg(all(target_pointer_width = "64", not(feature = "paranoid")))]
     fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
-        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U16.ilog2() as usize)
+        (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
     }
     #[inline]
     #[cfg(target_pointer_width = "32")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
-        (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U16.ilog2())) as usize
+        (batch.wrapping_mul(KNUTH) >> (32 - N.ilog2())) as usize
     }
 }
 
-/// A 2K entry hash table using 32-bit values (8 KB total).
+/// A hash table with `N` entries using 32-bit values (`4 * N` bytes).
+///
+/// `N` must be a power of two (checked at compile time in [`new`](Self::new)).
 #[derive(Debug)]
-pub struct HashTableU32 {
+pub struct HashTableU32<const N: usize = DEFAULT_NODICT_ENTRIES> {
     #[cfg(feature = "alloc")]
-    dict: Box<[u32; HASHTABLE_SIZE_U32]>,
+    dict: Box<[u32; N]>,
     #[cfg(not(feature = "alloc"))]
-    dict: [u32; HASHTABLE_SIZE_U32],
+    dict: [u32; N],
 }
-impl Default for HashTableU32 {
+impl<const N: usize> Default for HashTableU32<N> {
     fn default() -> Self {
         Self::new()
     }
 }
-impl HashTableU32 {
+impl<const N: usize> HashTableU32<N> {
     #[cfg(feature = "alloc")]
     #[inline]
     /// Create a new zeroed hash table.
     pub fn new() -> Self {
-        let dict = alloc::vec![0; HASHTABLE_SIZE_U32]
-            .into_boxed_slice()
-            .try_into()
-            .unwrap();
+        const { assert_valid_entries(N) };
+        let dict = alloc::vec![0; N].into_boxed_slice().try_into().unwrap();
         Self { dict }
     }
     #[cfg(not(feature = "alloc"))]
     #[inline]
     /// Create a new zeroed hash table.
     pub fn new() -> Self {
-        Self {
-            dict: [0u32; HASHTABLE_SIZE_U32],
-        }
+        const { assert_valid_entries(N) };
+        Self { dict: [0u32; N] }
     }
 
     /// Subtract `offset` from all entries (saturating).
@@ -291,7 +314,7 @@ impl HashTableU32 {
         }
     }
 }
-impl HashTable for HashTableU32 {
+impl<const N: usize> HashTable for HashTableU32<N> {
     #[inline]
     fn get_at(&self, idx: usize) -> usize {
         self.dict[idx] as usize
@@ -309,10 +332,10 @@ impl HashTable for HashTableU32 {
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         if U32_HASH_BYTES == 5 {
             let batch = get_batch_arch(input, pos);
-            (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U32.ilog2() as usize)
+            (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
         } else {
             let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
-            (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
+            (batch.wrapping_mul(KNUTH) >> (32 - N.ilog2())) as usize
         }
     }
     #[inline]
@@ -320,12 +343,12 @@ impl HashTable for HashTableU32 {
     fn get_hash_at_unchecked(input: &[u8], pos: usize) -> usize {
         // SAFETY: callers guarantee pos + 8 <= input.len() via end_pos_check.
         let batch = unsafe { get_batch_arch_unchecked(input, pos) };
-        (batch << 24).wrapping_mul(PRIME5) >> (64 - HASHTABLE_SIZE_U32.ilog2() as usize)
+        (batch << 24).wrapping_mul(PRIME5) >> (64 - N.ilog2() as usize)
     }
     #[inline]
     #[cfg(target_pointer_width = "32")]
     fn get_hash_at(input: &[u8], pos: usize) -> usize {
         let batch = u32::from_ne_bytes(input[pos..pos + 4].try_into().unwrap());
-        (batch.wrapping_mul(KNUTH) >> (32 - HASHTABLE_SIZE_U32.ilog2())) as usize
+        (batch.wrapping_mul(KNUTH) >> (32 - N.ilog2())) as usize
     }
 }

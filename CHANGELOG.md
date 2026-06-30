@@ -5,6 +5,12 @@
 ### Added
 
 - `paranoid` feature: compiles every crate with `#![forbid(unsafe_code)]`, replacing each unchecked memory op with a safe twin of the same signature. No `unsafe` at all; byte-for-byte compatible with the default build.
+- Const-generic hash table size. `CompressorRefN`, `DictCompressorRefN`, `CompressorN`, and `DictCompressorN` take a compile-time entry count `N` (power of two, at least `MIN_ENTRIES` = 256) for memory-constrained targets, e.g. `CompressorRefN::<512>::new()` for a 2 KB table. The standard `CompressorRef`/`DictCompressorRef`/`Compressor`/`DictCompressor` are aliases at the default 8 KB size. `N` is validated at compile time.
+
+### Changed
+
+- Split the compressor into separate no-dict and dict types. `CompressorRef::with_dict(d)` becomes `DictCompressorRef::new(d)` and `Compressor::with_dict(d)` becomes `DictCompressor::new(d)` (breaking). `CompressorRef` no longer has a lifetime parameter. The decompressor's `with_dict` is unchanged.
+- Removed the self-referential `from_raw_parts` from the owning compressor; the dictionary and hash tables are now sibling fields. `crates/encode/src/compressor.rs` is now `#![forbid(unsafe_code)]`. The isolated-unsafe boundary is now 15 blocks in 3 modules (was 16 in 4).
 
 ### Fixed
 

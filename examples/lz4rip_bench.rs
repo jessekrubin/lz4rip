@@ -246,7 +246,7 @@ fn bench_c_lz4(data: &[u8], name: &str, target_ns: u64) -> BenchResult {
 }
 
 fn bench_lz4rip_dict(data: &[u8], dict: &[u8], name: &str, target_ns: u64) -> BenchResult {
-    let mut compressor = lz4rip::block::Compressor::with_dict(dict);
+    let mut compressor = lz4rip::block::DictCompressor::new(dict);
     let max_out = lz4rip::block::get_maximum_output_size(data.len());
     let mut comp_buf = vec![0u8; max_out];
     let comp_len = compressor.compress_into(data, &mut comp_buf).unwrap();
@@ -569,7 +569,7 @@ const SWEEP_SIZES: &[usize] = &[
 
 fn run_sweep(dict: &[u8]) {
     let target_ns = 20_000_000u64;
-    let mut compressor = lz4rip::block::Compressor::with_dict(dict);
+    let mut compressor = lz4rip::block::DictCompressor::new(dict);
     let decompressor = lz4rip::block::Decompressor::with_dict(dict);
 
     let stream = unsafe { LZ4_createStream() };
@@ -876,7 +876,7 @@ fn run_structured_dict(only: &[String]) {
     let dict = trainer.train();
     eprintln!("trained dict: {} bytes", dict.len());
 
-    let mut compressor = lz4rip::block::Compressor::with_dict(&dict);
+    let mut compressor = lz4rip::block::DictCompressor::new(&dict);
     let decompressor = lz4rip::block::Decompressor::with_dict(&dict);
 
     let stream = unsafe { LZ4_createStream() };

@@ -1,6 +1,6 @@
 use lz4rip::block::{
     compress, compress_into_with_dict, decompress_into_with_dict, get_maximum_output_size,
-    Compressor, CompressorRef, Decompressor, DecompressorRef, DictTrainer,
+    Decompressor, DecompressorRef, DictCompressor, DictCompressorRef, DictTrainer,
 };
 use more_asserts::assert_lt;
 
@@ -11,7 +11,7 @@ fn dict_roundtrip(corpus: &[u8], dict_bytes: usize) {
     let dict = &corpus[..dict_bytes];
     let input = &corpus[dict_bytes..];
 
-    let mut comp = Compressor::with_dict(dict);
+    let mut comp = DictCompressor::new(dict);
     let compressed = comp.compress(input);
     let decomp = Decompressor::with_dict(dict);
     let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
@@ -79,7 +79,7 @@ fn dict_trainer_produces_usable_dict() {
     assert!(dict.len() <= 2048);
 
     let input = b"message id=42 payload=the quick brown fox jumps";
-    let mut comp = Compressor::with_dict(&dict);
+    let mut comp = DictCompressor::new(&dict);
     let compressed = comp.compress(input);
     let decomp = Decompressor::with_dict(&dict);
     let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
@@ -89,7 +89,7 @@ fn dict_trainer_produces_usable_dict() {
 // ---- Adversarial dict tests (all miri-friendly) ----
 
 fn dict_roundtrip_ref(dict: &[u8], input: &[u8]) {
-    let mut comp = CompressorRef::with_dict(dict);
+    let mut comp = DictCompressorRef::new(dict);
     let mut out = vec![0u8; get_maximum_output_size(input.len())];
     let n = comp.compress_into(input, &mut out).unwrap();
     let compressed = &out[..n];
@@ -100,7 +100,7 @@ fn dict_roundtrip_ref(dict: &[u8], input: &[u8]) {
 }
 
 fn dict_roundtrip_owning(dict: &[u8], input: &[u8]) {
-    let mut comp = Compressor::with_dict(dict);
+    let mut comp = DictCompressor::new(dict);
     let compressed = comp.compress(input);
     let decomp = Decompressor::with_dict(dict);
     let decompressed = decomp.decompress(&compressed, input.len()).unwrap();
@@ -169,7 +169,7 @@ fn dict_match_crosses_boundary() {
 #[test]
 fn dict_compressor_reuse() {
     let dict = b"prefix:key=value;prefix:key=value;padding!!";
-    let mut comp = Compressor::with_dict(dict);
+    let mut comp = DictCompressor::new(dict);
     let decomp = Decompressor::with_dict(dict);
 
     for i in 0u8..50 {
@@ -184,7 +184,7 @@ fn dict_compressor_reuse() {
 #[test]
 fn dict_compressor_ref_reuse() {
     let dict = b"AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH";
-    let mut comp = CompressorRef::with_dict(dict);
+    let mut comp = DictCompressorRef::new(dict);
     let decomp = DecompressorRef::with_dict(dict);
 
     for i in 0u8..50 {
@@ -252,7 +252,7 @@ fn dict_just_below_u16() {
 fn dict_decompress_corrupted() {
     let dict = b"dictionary content for decompression test here!!";
     let input = b"dictionary content appears in input too here!!";
-    let mut comp = Compressor::with_dict(dict);
+    let mut comp = DictCompressor::new(dict);
     let compressed = comp.compress(input);
 
     let decomp = Decompressor::with_dict(dict);
@@ -273,7 +273,7 @@ fn dict_decompress_wrong_dict() {
     let dict_b = b"xxxx yyyy zzzz wwww vvvv uuuu tttt ssss";
     let input = b"aaaa bbbb cccc dddd, aaaa bbbb cccc dddd";
 
-    let mut comp = Compressor::with_dict(dict_a);
+    let mut comp = DictCompressor::new(dict_a);
     let compressed = comp.compress(input);
 
     let decomp = Decompressor::with_dict(dict_b);

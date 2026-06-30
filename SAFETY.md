@@ -3,10 +3,22 @@
 ## Unsafe boundary
 
 All compression and decompression logic is `#[forbid(unsafe_code)]`. The remaining
-unsafe (16 blocks in 4 internal modules across 2 crates) performs unchecked memory
+unsafe (15 blocks in 3 internal modules across 2 crates) performs unchecked memory
 copies whose bounds are proven by safe-region margins computed in the algorithm code.
 No `unsafe` is exposed in the public API. See [DESIGN.md](DESIGN.md) for details on
 the unsafe boundary and safe-region margin computation.
+
+## Paranoid build (zero unsafe)
+
+The `paranoid` feature compiles every crate with `#![forbid(unsafe_code)]`, so the
+build contains no `unsafe` at all. Each unchecked memory op is replaced by a safe
+twin (bounds-checked indexing, `copy_within`/`copy_from_slice`, `from_ne_bytes`
+reads, `chunks_exact` match counting) with the same signature, so callers are
+unchanged. This is for users and policies that forbid `unsafe` outright (e.g.
+`#![forbid(unsafe_code)]` in a downstream crate, or certification regimes). It
+trades a small amount of throughput for the guarantee; the default build keeps the
+isolated-unsafe design above. The two builds are byte-for-byte compatible: output
+of one decompresses with the other.
 
 ## Why Rust matters here
 

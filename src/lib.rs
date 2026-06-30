@@ -84,12 +84,16 @@ pub mod block {
     pub use lz4rip_decode::{decompress_into, decompress_into_with_dict, DecompressorRef};
     pub use lz4rip_encode::{
         compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef,
+        CompressorRefN, DictCompressorRef, DictCompressorRefN, DEFAULT_DICT_ENTRIES,
+        DEFAULT_NODICT_ENTRIES, MIN_ENTRIES,
     };
 
     #[cfg(feature = "alloc")]
     pub use lz4rip_decode::{decompress, Decompressor};
     #[cfg(feature = "alloc")]
-    pub use lz4rip_encode::{compress, Compressor, DictTrainer};
+    pub use lz4rip_encode::{
+        compress, Compressor, CompressorN, DictCompressor, DictCompressorN, DictTrainer,
+    };
 }
 
 #[cfg(feature = "frame")]
@@ -125,7 +129,7 @@ mod tests {
             10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18, 10, 12, 14, 16, 18,
         ];
         let dict = input;
-        let mut comp = lz4rip_encode::Compressor::with_dict(dict);
+        let mut comp = lz4rip_encode::DictCompressor::new(dict);
         let compressed = comp.compress(input);
         assert!(compressed.len() < lz4rip_encode::compress(input).len());
 
@@ -152,7 +156,7 @@ mod tests {
         let dict = trainer.train();
         assert!(!dict.is_empty());
 
-        let mut compressor = lz4rip_encode::Compressor::with_dict(&dict);
+        let mut compressor = lz4rip_encode::DictCompressor::new(&dict);
         let decompressor = lz4rip_decode::Decompressor::with_dict(&dict);
 
         let test_msg = json_msg(9999);
