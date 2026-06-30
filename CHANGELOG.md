@@ -15,6 +15,8 @@
 ### Fixed
 
 - Dictionary decompression no longer panics on corrupt input where a match spans the external dictionary and continues into the output with a remainder shorter than the match offset. `SliceSink::extend_from_within_overlapping` now clamps its overlap seed to the remainder (matching `copy_within_overlapping`), so such input returns an error instead of overshooting the output buffer. Found by `fuzz_decomp_corrupt_block`.
+- The internal `HashTable` trait and generic `compress_internal` entry point are no longer re-exported. The frame encoder now uses a concrete `HashTableU32` wrapper, so downstream safe code cannot corrupt hash-table invariants that guard unchecked match reads.
+- The generic `decompress_internal` entry point is no longer re-exported. The frame decoder now uses a concrete `SliceSink` wrapper, so downstream safe code cannot supply a `Sink` whose capacity does not match the output slice trusted by the unsafe fast path.
 
 ## [0.9.3] - 2026-06-28
 

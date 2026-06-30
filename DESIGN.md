@@ -127,6 +127,16 @@ All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is i
 - `crates/encode/src/verified_sink.rs` (2 blocks): `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
 - `crates/decode/src/primitives.rs` (11 blocks): unchecked memory reads (`read_byte_unchecked`, `read_u16_unchecked`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`. Each has `debug_assert` guards on bounds.
 
+`HashTable` is crate-private. The facade crate's frame encoder uses a concrete
+`compress_into_sink_with_table` wrapper for `HashTableU32`, so external safe code
+cannot implement or mutate the match table in ways that would violate the
+unchecked read preconditions.
+
+`decompress_internal` is crate-private. The facade crate's frame decoder uses a
+concrete `decompress_into_sink_with_dict` wrapper for `SliceSink`, so external
+safe code cannot supply a custom `Sink` whose reported capacity diverges from the
+output slice trusted by the unsafe fast path.
+
 `crates/encode/src/compressor.rs` is itself `#[forbid(unsafe_code)]`: the owning `Compressor`/`DictCompressor` hold their dictionary and hash tables as sibling fields, so the former self-referential `from_raw_parts` is gone.
 
 The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies in `primitives.rs` are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.

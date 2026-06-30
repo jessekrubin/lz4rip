@@ -73,7 +73,7 @@ fn does_token_fit(token: u8) -> bool {
 ///
 /// Returns the number of bytes written (decompressed) into `output`.
 #[inline]
-pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
+pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     input: &[u8],
     output: &mut S,
     ext_dict: &[u8],
@@ -311,6 +311,20 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
         }
     }
     Ok(output.pos() - initial_output_pos)
+}
+
+/// Decompress into a `SliceSink`.
+///
+/// This is cross-crate plumbing for the frame decoder. It keeps the generic
+/// `Sink` entry point private, so downstream safe code cannot supply a `Sink`
+/// implementation whose reported capacity disagrees with its output slice.
+#[inline]
+pub fn decompress_into_sink_with_dict<const USE_DICT: bool>(
+    input: &[u8],
+    output: &mut SliceSink<'_>,
+    ext_dict: &[u8],
+) -> Result<usize, DecompressError> {
+    decompress_internal::<USE_DICT, _>(input, output, ext_dict)
 }
 
 #[inline]

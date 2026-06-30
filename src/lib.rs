@@ -109,6 +109,9 @@ pub use block::{
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
+    use alloc::{format, vec, vec::Vec};
     use lz4rip_core::SliceSink;
 
     #[test]

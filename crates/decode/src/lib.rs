@@ -23,4 +23,4 @@ pub use lz4rip_core::DecompressError;
 
 // Internal items needed by the lz4rip facade crate for the frame module.
 #[doc(hidden)]
-pub use decompress::{decompress_internal, read_integer};
+pub use decompress::{decompress_into_sink_with_dict, read_integer};

@@ -165,7 +165,7 @@ const PRIME5: usize = if cfg!(target_endian = "little") {
 };
 
 /// Hash table trait for LZ4 match finding.
-pub trait HashTable {
+pub(crate) trait HashTable {
     /// Look up a table entry by hash index.
     fn get_at(&self, idx: usize) -> usize;
     /// Store a position at the given hash index.
@@ -304,6 +304,12 @@ impl<const N: usize> HashTableU32<N> {
     pub fn new() -> Self {
         const { assert_valid_entries(N) };
         Self { dict: [0u32; N] }
+    }
+
+    /// Zero all entries.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.dict.fill(0);
     }
 
     /// Subtract `offset` from all entries (saturating).

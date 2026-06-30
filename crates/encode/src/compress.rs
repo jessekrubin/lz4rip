@@ -99,7 +99,7 @@ fn backtrack_match(
 
 /// Core block compression loop, monomorphized over hash table type and dict mode.
 #[inline(never)]
-pub fn compress_internal<
+pub(crate) fn compress_internal<
     T: HashTable,
     const USE_DICT: bool,
     const HAS_OFFSET: bool,
@@ -272,6 +272,34 @@ pub fn compress_internal<
             break;
         }
     }
+}
+
+/// Compress with a caller-owned `HashTableU32`.
+///
+/// This is cross-crate plumbing for the frame encoder. It keeps the internal
+/// `HashTable` trait private, so downstream safe code cannot corrupt match
+/// finder invariants that protect unchecked reads.
+pub fn compress_into_sink_with_table<
+    const USE_DICT: bool,
+    const HAS_OFFSET: bool,
+    const READONLY: bool,
+    S: Sink,
+>(
+    input: &[u8],
+    input_pos: usize,
+    output: &mut S,
+    table: &mut HashTableU32,
+    ext_dict: &[u8],
+    input_stream_offset: usize,
+) -> Result<usize, CompressError> {
+    compress_internal::<_, USE_DICT, HAS_OFFSET, READONLY, _>(
+        input,
+        input_pos,
+        output,
+        table,
+        ext_dict,
+        input_stream_offset,
+    )
 }
 
 /// Dual-table compression for `CompressorRef::with_dict`.
