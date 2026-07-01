@@ -6,8 +6,8 @@ use core::fmt;
 use alloc::vec::Vec;
 
 use crate::compress::{
-    compress_dict_tables, get_maximum_output_size, init_dict, CompressorRefN, HashTableU32U16,
-    DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES,
+    CompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES, HashTableU32U16,
+    compress_dict_tables, get_maximum_output_size, init_dict,
 };
 use lz4rip_core::CompressError;
 use lz4rip_core::{MINMATCH, WINDOW_SIZE};

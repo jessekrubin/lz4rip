@@ -3,9 +3,9 @@
 use core::fmt;
 
 use lz4rip_core::DecompressError;
+use lz4rip_core::MINMATCH;
 use lz4rip_core::Sink;
 use lz4rip_core::SliceSink;
-use lz4rip_core::MINMATCH;
 
 #[cfg(feature = "alloc")]
 use alloc::vec;
@@ -73,7 +73,7 @@ fn does_token_fit(token: u8) -> bool {
 ///
 /// Returns the number of bytes written (decompressed) into `output`.
 #[inline]
-pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
+pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     input: &[u8],
     output: &mut S,
     ext_dict: &[u8],
@@ -92,7 +92,7 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
     loop {
         let in_safe_region = input_pos < safe_input_pos;
         let token = if in_safe_region {
-            crate::primitives::read_byte_unchecked(input, input_pos)
+            crate::primitives::read_byte_inbounds(input, input_pos)
         } else {
             *input
                 .get(input_pos)
@@ -112,7 +112,7 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
             let match_nib = (token & 0xF) as usize;
 
             let offset =
-                crate::primitives::read_u16_unchecked(input, input_pos + literal_length) as usize;
+                crate::primitives::read_u16_inbounds(input, input_pos + literal_length) as usize;
             if offset == 0 {
                 return Err(DecompressError::OffsetZero);
             }
@@ -311,6 +311,20 @@ pub fn decompress_internal<const USE_DICT: bool, S: Sink>(
         }
     }
     Ok(output.pos() - initial_output_pos)
+}
+
+/// Decompress into a `SliceSink`.
+///
+/// This is cross-crate plumbing for the frame decoder. It keeps the generic
+/// `Sink` entry point private, so downstream safe code cannot supply a `Sink`
+/// implementation whose reported capacity disagrees with its output slice.
+#[inline]
+pub fn decompress_into_sink_with_dict<const USE_DICT: bool>(
+    input: &[u8],
+    output: &mut SliceSink<'_>,
+    ext_dict: &[u8],
+) -> Result<usize, DecompressError> {
+    decompress_internal::<USE_DICT, _>(input, output, ext_dict)
 }
 
 #[inline]
@@ -532,7 +546,9 @@ mod test {
         ));
         assert!(matches!(
             decompress(
-                &[0x0E, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                &[
+                    0x0E, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ],
                 256
             ),
             Err(DecompressError::OffsetOutOfBounds)

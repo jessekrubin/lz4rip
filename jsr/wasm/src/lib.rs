@@ -15,9 +15,14 @@ pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, JsE
     lz4rip::decompress(input, uncompressed_size).map_err(|e| JsError::new(&format!("{e}")))
 }
 
+enum CompressorInner {
+    Plain(lz4rip::block::Compressor),
+    Dict(lz4rip::block::DictCompressor),
+}
+
 #[wasm_bindgen]
 pub struct Compressor {
-    inner: lz4rip::block::Compressor,
+    inner: CompressorInner,
 }
 
 #[wasm_bindgen]
@@ -25,19 +30,22 @@ impl Compressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Compressor {
         Compressor {
-            inner: lz4rip::block::Compressor::new(),
+            inner: CompressorInner::Plain(lz4rip::block::Compressor::new()),
         }
     }
 
     #[wasm_bindgen(js_name = "withDict")]
     pub fn with_dict(dict: &[u8]) -> Compressor {
         Compressor {
-            inner: lz4rip::block::Compressor::with_dict(dict),
+            inner: CompressorInner::Dict(lz4rip::block::DictCompressor::new(dict)),
         }
     }
 
     pub fn compress(&mut self, input: &[u8]) -> Vec<u8> {
-        self.inner.compress(input)
+        match &mut self.inner {
+            CompressorInner::Plain(c) => c.compress(input),
+            CompressorInner::Dict(c) => c.compress(input),
+        }
     }
 }
 

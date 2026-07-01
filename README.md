@@ -42,6 +42,8 @@ See [DESIGN.md](DESIGN.md) for how it all works.
 ![LZ4 Dict 2K](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/aarch64/dict2k.svg)
 </details>
 
+**WebAssembly.** Available as [`@paddor/lz4rip`](https://jsr.io/@paddor/lz4rip) on JSR. Block compress/decompress with optional dictionary support.
+
 ## Block format
 
 ```rust

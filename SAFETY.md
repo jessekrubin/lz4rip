@@ -5,8 +5,12 @@
 All compression and decompression logic is `#[forbid(unsafe_code)]`. The remaining
 unsafe (15 blocks in 3 internal modules across 2 crates) performs unchecked memory
 copies whose bounds are proven by safe-region margins computed in the algorithm code.
-No `unsafe` is exposed in the public API. See [DESIGN.md](DESIGN.md) for details on
-the unsafe boundary and safe-region margin computation.
+No `unsafe` is exposed in the public API. The internal hash-table trait and
+generic decompression entry point are not exported, so downstream code cannot
+construct invalid match candidates for the unchecked encoder reads or supply a
+custom `Sink` whose capacity lies to the decoder fast path. See
+[DESIGN.md](DESIGN.md) for details on the unsafe boundary and safe-region margin
+computation.
 
 ## Paranoid build (zero unsafe)
 

@@ -22,9 +22,9 @@ mod verified_sink;
 #[cfg(feature = "alloc")]
 pub use compress::compress;
 pub use compress::{
-    compress_into, compress_into_with_dict, get_maximum_output_size, CompressorRef, CompressorRefN,
-    DictCompressorRef, DictCompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES,
-    MIN_ENTRIES,
+    CompressorRef, CompressorRefN, DEFAULT_DICT_ENTRIES, DEFAULT_NODICT_ENTRIES, DictCompressorRef,
+    DictCompressorRefN, MIN_ENTRIES, compress_into, compress_into_with_dict,
+    get_maximum_output_size,
 };
 #[cfg(feature = "alloc")]
 pub use compressor::{Compressor, CompressorN, DictCompressor, DictCompressorN};
@@ -35,6 +35,6 @@ pub use lz4rip_core::CompressError;
 // Cross-crate plumbing for the lz4rip facade (frame module + tests).
 // Public for workspace access but not part of the stable API.
 #[doc(hidden)]
-pub use compress::{compress_internal, compress_into_sink_with_dict, write_integer};
+pub use compress::{compress_into_sink_with_dict, compress_into_sink_with_table, write_integer};
 #[doc(hidden)]
-pub use hashtable::{HashTable, HashTableU32};
+pub use hashtable::HashTableU32;

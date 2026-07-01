@@ -1,11 +1,11 @@
-use lz4rip_core::slice_copy;
 use lz4rip_core::Sink;
+use lz4rip_core::slice_copy;
 
 /// Like `SliceSink` but with unchecked writes. The caller must guarantee that all writes fit
 /// within the slice (e.g. by verifying `capacity >= get_maximum_output_size(input_len)` before
 /// any writes). Used for compression where the capacity invariant is checked upfront by
 /// `compress_internal`.
-pub struct VerifiedSliceSink<'a> {
+pub(crate) struct VerifiedSliceSink<'a> {
     output: &'a mut [u8],
     pos: usize,
 }
@@ -13,7 +13,7 @@ pub struct VerifiedSliceSink<'a> {
 impl<'a> VerifiedSliceSink<'a> {
     /// Create a new `VerifiedSliceSink` starting at `pos`.
     #[inline]
-    pub fn new(output: &'a mut [u8], pos: usize) -> Self {
+    pub(crate) fn new(output: &'a mut [u8], pos: usize) -> Self {
         let _ = &mut output[..pos]; // bounds check pos
         VerifiedSliceSink { output, pos }
     }

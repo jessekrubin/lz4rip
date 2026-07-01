@@ -7,14 +7,14 @@ use twox_hash::XxHash32;
 
 use lz4rip_core::{SliceSink, WINDOW_SIZE};
 use lz4rip_encode::{
-    compress_internal, compress_into_sink_with_dict, get_maximum_output_size, HashTable,
-    HashTableU32,
+    HashTableU32, compress_into_sink_with_dict, compress_into_sink_with_table,
+    get_maximum_output_size,
 };
 
 use super::Error;
 use super::{
-    header::{BlockInfo, BlockMode, FrameInfo, BLOCK_INFO_SIZE, MAX_FRAME_INFO_SIZE},
     BlockSize,
+    header::{BLOCK_INFO_SIZE, BlockInfo, BlockMode, FrameInfo, MAX_FRAME_INFO_SIZE},
 };
 
 fn vec_sink_for_compression(
@@ -263,7 +263,7 @@ impl<W: io::Write> FrameEncoder<W> {
             )
         } else if self.ext_dict_len != 0 {
             debug_assert_eq!(self.frame_info.block_mode, BlockMode::Linked);
-            compress_internal::<_, true, true, false, _>(
+            compress_into_sink_with_table::<true, true, false, _>(
                 input,
                 self.src_start,
                 &mut vec_sink_for_compression(&mut self.dst, 0, 0, dst_required_size),
@@ -272,7 +272,7 @@ impl<W: io::Write> FrameEncoder<W> {
                 self.src_stream_offset,
             )
         } else {
-            compress_internal::<_, false, true, false, _>(
+            compress_into_sink_with_table::<false, true, false, _>(
                 input,
                 self.src_start,
                 &mut vec_sink_for_compression(&mut self.dst, 0, 0, dst_required_size),

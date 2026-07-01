@@ -7,12 +7,12 @@ use crate::verified_sink::VerifiedSliceSink;
 #[cfg(feature = "alloc")]
 use alloc::vec;
 use lz4rip_core::CompressError;
-use lz4rip_core::Sink;
 use lz4rip_core::END_OFFSET;
 use lz4rip_core::LZ4_MIN_LENGTH;
 use lz4rip_core::MAX_DISTANCE;
 use lz4rip_core::MFLIMIT;
 use lz4rip_core::MINMATCH;
+use lz4rip_core::Sink;
 use lz4rip_core::WINDOW_SIZE;
 
 #[cfg(feature = "alloc")]
@@ -99,7 +99,7 @@ fn backtrack_match(
 
 /// Core block compression loop, monomorphized over hash table type and dict mode.
 #[inline(never)]
-pub fn compress_internal<
+pub(crate) fn compress_internal<
     T: HashTable,
     const USE_DICT: bool,
     const HAS_OFFSET: bool,
@@ -117,10 +117,12 @@ pub fn compress_internal<
     if USE_DICT {
         assert!(ext_dict.len() <= WINDOW_SIZE);
         assert!(ext_dict.len() <= input_stream_offset);
-        assert!(input_stream_offset
-            .checked_add(input.len())
-            .and_then(|i| i.checked_add(ext_dict.len()))
-            .is_some_and(|i| i <= isize::MAX as usize));
+        assert!(
+            input_stream_offset
+                .checked_add(input.len())
+                .and_then(|i| i.checked_add(ext_dict.len()))
+                .is_some_and(|i| i <= isize::MAX as usize)
+        );
     } else {
         assert!(ext_dict.is_empty());
     }
@@ -144,14 +146,14 @@ pub fn compress_internal<
     let mut cur = input_pos;
 
     if cur == 0 && input_stream_offset == 0 {
-        let hash = T::get_hash_at_unchecked(input, 0);
+        let hash = T::get_hash_at_inbounds(input, 0);
         if !READONLY {
             table.put_at(hash, 0);
         }
         cur = 1;
     }
 
-    let mut forward_hash = T::get_hash_at_unchecked(input, cur);
+    let mut forward_hash = T::get_hash_at_inbounds(input, cur);
 
     loop {
         let mut candidate;
@@ -171,7 +173,7 @@ pub fn compress_internal<
 
             let hash = forward_hash;
             candidate = table.get_at(hash);
-            forward_hash = T::get_hash_at_unchecked(input, next_cur);
+            forward_hash = T::get_hash_at_inbounds(input, next_cur);
             if !READONLY {
                 table.put_at(hash, cur + input_stream_offset);
             }
@@ -195,9 +197,8 @@ pub fn compress_internal<
                 cur = next_cur;
                 continue;
             }
-            let cand_bytes: u32 =
-                crate::hashtable::get_batch_unchecked(candidate_source, candidate);
-            let curr_bytes: u32 = crate::hashtable::get_batch_unchecked(input, cur);
+            let cand_bytes: u32 = crate::hashtable::get_batch_inbounds(candidate_source, candidate);
+            let curr_bytes: u32 = crate::hashtable::get_batch_inbounds(input, cur);
 
             if cand_bytes == curr_bytes {
                 break;
@@ -218,7 +219,7 @@ pub fn compress_internal<
 
             cur += MINMATCH;
             candidate += MINMATCH;
-            let duplicate_length = crate::hashtable::count_same_bytes_unchecked(
+            let duplicate_length = crate::hashtable::count_same_bytes_inbounds(
                 input,
                 &mut cur,
                 candidate_source,
@@ -226,7 +227,7 @@ pub fn compress_internal<
                 END_OFFSET,
             );
 
-            let hash = T::get_hash_at_unchecked(input, cur - 2);
+            let hash = T::get_hash_at_inbounds(input, cur - 2);
             if !READONLY {
                 table.put_at(hash, cur - 2 + input_stream_offset);
             }
@@ -246,15 +247,15 @@ pub fn compress_internal<
             literal_start = cur;
 
             if !USE_DICT && cur <= end_pos_check {
-                let hash = T::get_hash_at_unchecked(input, cur);
+                let hash = T::get_hash_at_inbounds(input, cur);
                 let rematch = table.get_at(hash);
 
                 if input_stream_offset + cur - rematch <= MAX_DISTANCE
                     && rematch >= input_stream_offset
                 {
                     let rc = rematch - input_stream_offset;
-                    if crate::hashtable::get_batch_unchecked(input, cur)
-                        == crate::hashtable::get_batch_unchecked(input, rc)
+                    if crate::hashtable::get_batch_inbounds(input, cur)
+                        == crate::hashtable::get_batch_inbounds(input, rc)
                     {
                         table.put_at(hash, cur + input_stream_offset);
                         candidate = rc;
@@ -265,11 +266,39 @@ pub fn compress_internal<
                 }
                 forward_hash = hash;
             } else if cur <= end_pos_check {
-                forward_hash = T::get_hash_at_unchecked(input, cur);
+                forward_hash = T::get_hash_at_inbounds(input, cur);
             }
             break;
         }
     }
+}
+
+/// Compress with a caller-owned `HashTableU32`.
+///
+/// This is cross-crate plumbing for the frame encoder. It keeps the internal
+/// `HashTable` trait private, so downstream safe code cannot corrupt match
+/// finder invariants that protect unchecked reads.
+pub fn compress_into_sink_with_table<
+    const USE_DICT: bool,
+    const HAS_OFFSET: bool,
+    const READONLY: bool,
+    S: Sink,
+>(
+    input: &[u8],
+    input_pos: usize,
+    output: &mut S,
+    table: &mut HashTableU32,
+    ext_dict: &[u8],
+    input_stream_offset: usize,
+) -> Result<usize, CompressError> {
+    compress_internal::<_, USE_DICT, HAS_OFFSET, READONLY, _>(
+        input,
+        input_pos,
+        output,
+        table,
+        ext_dict,
+        input_stream_offset,
+    )
 }
 
 /// Dual-table compression for `CompressorRef::with_dict`.
@@ -285,10 +314,12 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
     debug_assert_eq!(input_stream_offset, ext_dict.len());
     assert!(ext_dict.len() <= WINDOW_SIZE);
     assert!(ext_dict.len() <= input_stream_offset);
-    assert!(input_stream_offset
-        .checked_add(input.len())
-        .and_then(|i| i.checked_add(ext_dict.len()))
-        .is_some_and(|i| i <= isize::MAX as usize));
+    assert!(
+        input_stream_offset
+            .checked_add(input.len())
+            .and_then(|i| i.checked_add(ext_dict.len()))
+            .is_some_and(|i| i <= isize::MAX as usize)
+    );
     if output.capacity() - output.pos() < get_maximum_output_size(input.len()) {
         return Err(CompressError::OutputTooSmall);
     }
@@ -302,11 +333,11 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
     let end_pos_check = input.len() - MFLIMIT;
     let mut literal_start = 0;
 
-    let hash = T::get_hash_at_unchecked(input, 0);
+    let hash = T::get_hash_at_inbounds(input, 0);
     table.put_at(hash, input_stream_offset);
     let mut cur = 1;
 
-    let mut forward_hash = T::get_hash_at_unchecked(input, cur);
+    let mut forward_hash = T::get_hash_at_inbounds(input, cur);
 
     loop {
         let mut candidate;
@@ -325,8 +356,8 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
             }
 
             let hash = forward_hash;
-            forward_hash = T::get_hash_at_unchecked(input, next_cur);
-            let curr_bytes: u32 = crate::hashtable::get_batch_unchecked(input, cur);
+            forward_hash = T::get_hash_at_inbounds(input, next_cur);
+            let curr_bytes: u32 = crate::hashtable::get_batch_inbounds(input, cur);
 
             let main_candidate = table.get_at(hash);
             table.put_at(hash, cur + input_stream_offset);
@@ -339,7 +370,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
                 && input_stream_offset + cur - dict_candidate <= MAX_DISTANCE
             {
                 let cand_bytes: u32 =
-                    crate::hashtable::get_batch_unchecked(ext_dict, dict_candidate);
+                    crate::hashtable::get_batch_inbounds(ext_dict, dict_candidate);
                 if cand_bytes == curr_bytes {
                     offset = (input_stream_offset + cur - dict_candidate) as u16;
                     candidate = dict_candidate;
@@ -351,7 +382,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
             if main_candidate >= input_stream_offset
                 && input_stream_offset + cur - main_candidate <= MAX_DISTANCE
             {
-                let cand_bytes: u32 = crate::hashtable::get_batch_unchecked(
+                let cand_bytes: u32 = crate::hashtable::get_batch_inbounds(
                     input,
                     main_candidate - input_stream_offset,
                 );
@@ -378,7 +409,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
 
         cur += MINMATCH;
         candidate += MINMATCH;
-        let duplicate_length = crate::hashtable::count_same_bytes_unchecked(
+        let duplicate_length = crate::hashtable::count_same_bytes_inbounds(
             input,
             &mut cur,
             candidate_source,
@@ -386,7 +417,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
             END_OFFSET,
         );
 
-        let hash = T::get_hash_at_unchecked(input, cur - 2);
+        let hash = T::get_hash_at_inbounds(input, cur - 2);
         table.put_at(hash, cur - 2 + input_stream_offset);
 
         let token = token_from_literal_and_match_length(lit_len, duplicate_length);
@@ -404,7 +435,7 @@ fn compress_with_dict_table<T: HashTable, S: Sink>(
         literal_start = cur;
 
         if cur <= end_pos_check {
-            forward_hash = T::get_hash_at_unchecked(input, cur);
+            forward_hash = T::get_hash_at_inbounds(input, cur);
         }
     }
 }

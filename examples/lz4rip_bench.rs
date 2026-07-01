@@ -12,7 +12,7 @@ struct LZ4Stream {
     _opaque: [u8; 0],
 }
 
-extern "C" {
+unsafe extern "C" {
     fn LZ4_createStream() -> *mut LZ4Stream;
     fn LZ4_freeStream(stream: *mut LZ4Stream) -> c_int;
     fn LZ4_resetStream_fast(stream: *mut LZ4Stream);
@@ -460,6 +460,10 @@ const SILESIA_DOWNLOADS: &[(&str, &str)] = &[
         "corpus/silesia/x-ray",
         "https://sun.aei.polsl.pl/~sdeor/corpus/x-ray.bz2",
     ),
+    (
+        "corpus/silesia/ooffice",
+        "https://sun.aei.polsl.pl/~sdeor/corpus/ooffice.bz2",
+    ),
 ];
 
 fn ensure_corpus() {
@@ -504,6 +508,7 @@ const ALL_FILES: &[&str] = &[
     "corpus/silesia/sao",
     "corpus/silesia/webster",
     "corpus/silesia/x-ray",
+    "corpus/silesia/ooffice",
 ];
 
 fn json_payload(target_bytes: usize, counter_start: u64) -> Vec<u8> {

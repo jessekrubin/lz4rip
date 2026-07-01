@@ -1,4 +1,4 @@
-use lz4rip::block::{decompress, Decompressor};
+use lz4rip::block::{Decompressor, decompress};
 
 fn decompress_with_size_prefix(data: &[u8]) -> Result<Vec<u8>, lz4rip::block::DecompressError> {
     if data.len() < 4 {

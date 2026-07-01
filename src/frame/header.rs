@@ -379,7 +379,7 @@ impl BlockInfo {
             BlockInfo::Compressed(len) | BlockInfo::Uncompressed(len)
                 if *len & BLOCK_UNCOMPRESSED_SIZE_BIT != 0 =>
             {
-                return Err(Error::InvalidBlockInfo)
+                return Err(Error::InvalidBlockInfo);
             }
             BlockInfo::Compressed(len) => *len,
             BlockInfo::Uncompressed(len) => *len | BLOCK_UNCOMPRESSED_SIZE_BIT,

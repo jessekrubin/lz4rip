@@ -15,12 +15,12 @@ mod decompress;
 pub(crate) mod primitives;
 
 #[cfg(feature = "alloc")]
-pub use decompress::decompress;
-#[cfg(feature = "alloc")]
 pub use decompress::Decompressor;
-pub use decompress::{decompress_into, decompress_into_with_dict, DecompressorRef};
+#[cfg(feature = "alloc")]
+pub use decompress::decompress;
+pub use decompress::{DecompressorRef, decompress_into, decompress_into_with_dict};
 pub use lz4rip_core::DecompressError;
 
 // Internal items needed by the lz4rip facade crate for the frame module.
 #[doc(hidden)]
-pub use decompress::{decompress_internal, read_integer};
+pub use decompress::{decompress_into_sink_with_dict, read_integer};

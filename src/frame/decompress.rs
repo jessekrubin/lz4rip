@@ -6,12 +6,12 @@ use std::{
 };
 use twox_hash::XxHash32;
 
+use super::Error;
 use super::header::{
     BlockInfo, BlockMode, FrameInfo, MAGIC_NUMBER_SIZE, MAX_FRAME_INFO_SIZE, MIN_FRAME_INFO_SIZE,
 };
-use super::Error;
 use lz4rip_core::{SliceSink, WINDOW_SIZE};
-use lz4rip_decode::decompress_internal;
+use lz4rip_decode::decompress_into_sink_with_dict;
 
 fn vec_sink_for_decompression(
     vec: &mut Vec<u8>,
@@ -252,14 +252,14 @@ impl<R: io::Read> FrameDecoder<R> {
                     let ext_dict = &tail[..self.ext_dict_len];
 
                     debug_assert!(head.len() - self.dst_start >= max_block_size);
-                    decompress_internal::<true, _>(
+                    decompress_into_sink_with_dict::<true>(
                         &self.src[..len],
                         &mut SliceSink::new(head, self.dst_start),
                         ext_dict,
                     )
                 } else if !self.dict.is_empty() {
                     debug_assert!(self.dst.capacity() - self.dst_start >= max_block_size);
-                    decompress_internal::<true, _>(
+                    decompress_into_sink_with_dict::<true>(
                         &self.src[..len],
                         &mut vec_sink_for_decompression(
                             &mut self.dst,
@@ -271,7 +271,7 @@ impl<R: io::Read> FrameDecoder<R> {
                     )
                 } else {
                     debug_assert!(self.dst.capacity() - self.dst_start >= max_block_size);
-                    decompress_internal::<false, _>(
+                    decompress_into_sink_with_dict::<false>(
                         &self.src[..len],
                         &mut vec_sink_for_decompression(
                             &mut self.dst,

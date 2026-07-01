@@ -8,7 +8,7 @@
 /// Read 1 byte without bounds checking.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn read_byte_unchecked(input: &[u8], n: usize) -> u8 {
+pub(crate) fn read_byte_inbounds(input: &[u8], n: usize) -> u8 {
     debug_assert!(n < input.len());
     unsafe { *input.get_unchecked(n) }
 }
@@ -16,14 +16,14 @@ pub(crate) fn read_byte_unchecked(input: &[u8], n: usize) -> u8 {
 /// Read 1 byte (paranoid: bounds-checked).
 #[cfg(feature = "paranoid")]
 #[inline]
-pub(crate) fn read_byte_unchecked(input: &[u8], n: usize) -> u8 {
+pub(crate) fn read_byte_inbounds(input: &[u8], n: usize) -> u8 {
     input[n]
 }
 
 /// Read 2 bytes as little-endian u16 without bounds checking.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn read_u16_unchecked(input: &[u8], n: usize) -> u16 {
+pub(crate) fn read_u16_inbounds(input: &[u8], n: usize) -> u16 {
     debug_assert!(n + 2 <= input.len());
     unsafe {
         (input.as_ptr().add(n) as *const u16)
@@ -35,7 +35,7 @@ pub(crate) fn read_u16_unchecked(input: &[u8], n: usize) -> u16 {
 /// Read 2 bytes as little-endian u16 (paranoid: bounds-checked).
 #[cfg(feature = "paranoid")]
 #[inline]
-pub(crate) fn read_u16_unchecked(input: &[u8], n: usize) -> u16 {
+pub(crate) fn read_u16_inbounds(input: &[u8], n: usize) -> u16 {
     u16::from_le_bytes(input[n..n + 2].try_into().unwrap())
 }
 

@@ -233,7 +233,7 @@ fn vec_from_length(length: u8) -> impl Strategy<Value = Vec<Vec<u8>>> {
 /// exercise stream_offset advancement and the overflow/reset path.
 #[test]
 fn compressor_ref_epoch_reuse() {
-    use lz4rip::block::{decompress, get_maximum_output_size, CompressorRef};
+    use lz4rip::block::{CompressorRef, decompress, get_maximum_output_size};
 
     let mut comp = CompressorRef::new();
     let input = b"the quick brown fox jumps over the lazy dog, again and again!";
@@ -269,8 +269,8 @@ fn compressor_ref_dict_u16_boundary_fallback() {
 #[test]
 fn tiny_table_roundtrip() {
     use lz4rip::block::{
-        decompress, get_maximum_output_size, CompressorN, CompressorRefN, Decompressor,
-        DictCompressorN, DictCompressorRefN,
+        CompressorN, CompressorRefN, Decompressor, DictCompressorN, DictCompressorRefN, decompress,
+        get_maximum_output_size,
     };
 
     let input: Vec<u8> = (0u8..=255).cycle().take(20000).collect();

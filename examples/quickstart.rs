@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use lz4rip::block::{compress, decompress, Decompressor, DictCompressor};
+use lz4rip::block::{Decompressor, DictCompressor, compress, decompress};
 
 fn main() {
     // Block format
