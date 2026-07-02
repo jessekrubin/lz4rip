@@ -65,6 +65,8 @@ pub enum Error {
     DictionaryNotSupported,
     /// The frame declares a Dict_ID but no dictionary was provided to the decoder.
     DictionaryRequired,
+    /// Block mode must be independent when using a dictionary.
+    DictionaryRequiresIndependentBlocks,
     /// The frame's Dict_ID does not match the dictionary supplied to the decoder.
     DictIdMismatch {
         /// Dict_ID written into the frame header.
@@ -91,6 +93,9 @@ impl From<Error> for io::Error {
             | Error::DictionaryNotSupported
             | Error::DictionaryRequired
             | Error::DictIdMismatch { .. } => io::Error::other(e),
+            Error::DictionaryRequiresIndependentBlocks => {
+                io::Error::new(io::ErrorKind::InvalidInput, e)
+            }
             Error::WrongMagicNumber
             | Error::UnsupportedBlocksize(..)
             | Error::UnsupportedVersion(..)
@@ -130,6 +135,9 @@ impl fmt::Display for Error {
             Error::BlockChecksumError => f.write_str("block checksum mismatch"),
             Error::ContentChecksumError => f.write_str("content checksum mismatch"),
             Error::SkippableFrame(len) => write!(f, "skippable frame ({len} bytes)"),
+            Error::DictionaryRequiresIndependentBlocks => {
+                f.write_str("block mode must be independent when using a dictionary")
+            }
             Error::DictionaryNotSupported => {
                 f.write_str("frame declares a dictionary but no dictionary was provided")
             }

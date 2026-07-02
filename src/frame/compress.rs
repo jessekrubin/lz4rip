@@ -146,6 +146,44 @@ impl<W: io::Write> FrameEncoder<W> {
         enc
     }
 
+    /// Creates a new Encoder with the specified [`FrameInfo`] and external dictionary.
+    ///
+    /// Dictionary compression currently requires [`BlockMode::Independent`].
+    /// All other frame settings are preserved.
+    pub fn with_frame_info_and_dictionary(
+        frame_info: FrameInfo,
+        wtr: W,
+        dict: &[u8],
+        dict_id: u32,
+    ) -> Result<Self, Error> {
+        if frame_info.block_mode != BlockMode::Independent {
+            Err(Error::DictionaryRequiresIndependentBlocks)
+        } else {
+            Ok(Self::with_frame_info_and_dictionary_unchecked(
+                frame_info, wtr, dict, dict_id,
+            ))
+        }
+    }
+
+    /// Creates a new Encoder with the specified [`FrameInfo`] and external dictionary.
+    ///
+    /// Dictionary compression currently requires [`BlockMode::Independent`].
+    /// All other frame settings are preserved.
+    pub fn with_frame_info_and_dictionary_unchecked(
+        mut frame_info: FrameInfo,
+        wtr: W,
+        dict: &[u8],
+        dict_id: u32,
+    ) -> Self {
+        if frame_info.block_mode != BlockMode::Independent {
+            panic!("block mode must be independent when using a dictionary");
+        }
+        frame_info.dict_id = Some(dict_id);
+        let mut enc = Self::with_frame_info(frame_info, wtr);
+        enc.dict = dict.to_vec();
+        enc
+    }
+
     /// The frame information used by this Encoder.
     pub fn frame_info(&self) -> &FrameInfo {
         &self.frame_info

@@ -125,6 +125,58 @@ fn dict_round_trip() {
 }
 
 #[test]
+fn dict_with_frame_info_round_trip_and_preserves_settings() {
+    let dict = b"JSON schema v1 field name= value= type= len= ".repeat(4);
+    let dict_id = 0xDEAD_BEEF;
+    let msg = b"JSON schema v1 field name=hello value=world type=str len=5";
+    let frame_info = lz4rip::frame::FrameInfo::new()
+        .block_mode(lz4rip::frame::BlockMode::Independent)
+        .block_size(lz4rip::frame::BlockSize::Max256KB)
+        .block_checksums(true)
+        .content_checksum(true)
+        .content_size(Some(msg.len() as u64));
+
+    let mut enc = lz4rip::frame::FrameEncoder::with_frame_info_and_dictionary(
+        frame_info.clone(),
+        Vec::new(),
+        &dict,
+        dict_id,
+    )
+    .unwrap();
+    assert_eq!(enc.frame_info().block_mode, frame_info.block_mode);
+    assert_eq!(enc.frame_info().block_size, frame_info.block_size);
+    assert_eq!(enc.frame_info().block_checksums, frame_info.block_checksums);
+    assert_eq!(
+        enc.frame_info().content_checksum,
+        frame_info.content_checksum
+    );
+    assert_eq!(enc.frame_info().content_size, frame_info.content_size);
+
+    enc.write_all(msg).unwrap();
+    let compressed = enc.finish().unwrap();
+    let mut dec = lz4rip::frame::FrameDecoder::with_dictionary(&*compressed, &dict, dict_id);
+    let mut out = Vec::new();
+    dec.read_to_end(&mut out).unwrap();
+    assert_eq!(out, msg);
+}
+
+#[test]
+fn dict_with_frame_info_rejects_linked_blocks() {
+    let frame_info = lz4rip::frame::FrameInfo::new().block_mode(lz4rip::frame::BlockMode::Linked);
+    let result = lz4rip::frame::FrameEncoder::with_frame_info_and_dictionary(
+        frame_info,
+        Vec::new(),
+        b"dictionary",
+        1,
+    );
+
+    assert!(matches!(
+        result,
+        Err(lz4rip::frame::Error::DictionaryRequiresIndependentBlocks)
+    ));
+}
+
+#[test]
 fn dict_id_mismatch_fails() {
     let dict = b"prefix AAA ".repeat(8);
     let msg = b"prefix AAA tail";
