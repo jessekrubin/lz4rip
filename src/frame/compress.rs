@@ -8,7 +8,7 @@ use twox_hash::XxHash32;
 use lz4rip_core::{SliceSink, WINDOW_SIZE};
 use lz4rip_encode::{
     HashTableU32, compress_into_sink_with_dict, compress_into_sink_with_table,
-    get_maximum_output_size,
+    get_maximum_output_size, seed_table_with_input,
 };
 
 use super::Error;
@@ -137,9 +137,7 @@ impl<W: io::Write> FrameEncoder<W> {
     /// dictionary.
     ///
     /// When `frame_info` is `None`, uses default settings with
-    /// [`BlockMode::Independent`]. When `Some`, the supplied settings are used
-    /// but `block_mode` must be [`BlockMode::Independent`] (dictionary
-    /// compression with linked blocks is not yet supported).
+    /// [`BlockMode::Independent`]. When `Some`, the supplied settings are used.
     pub fn with_dictionary(
         wtr: W,
         dict: &[u8],
@@ -147,9 +145,6 @@ impl<W: io::Write> FrameEncoder<W> {
         frame_info: Option<FrameInfo>,
     ) -> Result<Self, Error> {
         let mut frame_info = frame_info.unwrap_or_default();
-        if frame_info.block_mode != BlockMode::Independent {
-            return Err(Error::DictionaryRequiresIndependentBlocks);
-        }
         frame_info.dict_id = Some(dict_id);
         let mut enc = Self::with_frame_info(frame_info, wtr);
         enc.dict = dict.to_vec();
@@ -262,9 +257,11 @@ impl<W: io::Write> FrameEncoder<W> {
         let src = &input[self.src_start..];
 
         let dst_required_size = get_maximum_output_size(src.len());
+        let first_frame_block = self.content_len == 0;
 
-        let compress_result = if !self.dict.is_empty() {
-            debug_assert_eq!(self.frame_info.block_mode, BlockMode::Independent);
+        let compress_result = if !self.dict.is_empty()
+            && (self.frame_info.block_mode == BlockMode::Independent || first_frame_block)
+        {
             debug_assert_eq!(self.ext_dict_len, 0);
             compress_into_sink_with_dict::<true>(
                 src,
@@ -298,6 +295,13 @@ impl<W: io::Write> FrameEncoder<W> {
             }
             _ => (BlockInfo::Uncompressed(src.len() as _), src),
         };
+
+        if self.frame_info.block_mode == BlockMode::Linked
+            && !self.dict.is_empty()
+            && first_frame_block
+        {
+            seed_table_with_input(&mut self.compression_table, src, self.src_stream_offset);
+        }
 
         let mut block_info_buffer = [0u8; BLOCK_INFO_SIZE];
         block_info.write(&mut block_info_buffer[..])?;

@@ -35,6 +35,9 @@ pub use lz4rip_core::CompressError;
 // Cross-crate plumbing for the lz4rip facade (frame module + tests).
 // Public for workspace access but not part of the stable API.
 #[doc(hidden)]
-pub use compress::{compress_into_sink_with_dict, compress_into_sink_with_table, write_integer};
+pub use compress::{
+    compress_into_sink_with_dict, compress_into_sink_with_table, seed_table_with_input,
+    write_integer,
+};
 #[doc(hidden)]
 pub use hashtable::HashTableU32;

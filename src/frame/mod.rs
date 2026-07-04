@@ -65,7 +65,7 @@ pub enum Error {
     DictionaryNotSupported,
     /// The frame declares a Dict_ID but no dictionary was provided to the decoder.
     DictionaryRequired,
-    /// Block mode must be independent when using a dictionary.
+    /// Deprecated: dictionaries can use either independent or linked blocks.
     DictionaryRequiresIndependentBlocks,
     /// The frame's Dict_ID does not match the dictionary supplied to the decoder.
     DictIdMismatch {
@@ -136,7 +136,7 @@ impl fmt::Display for Error {
             Error::ContentChecksumError => f.write_str("content checksum mismatch"),
             Error::SkippableFrame(len) => write!(f, "skippable frame ({len} bytes)"),
             Error::DictionaryRequiresIndependentBlocks => {
-                f.write_str("block mode must be independent when using a dictionary")
+                f.write_str("dictionary frames can use independent or linked blocks")
             }
             Error::DictionaryNotSupported => {
                 f.write_str("frame declares a dictionary but no dictionary was provided")
