@@ -66,11 +66,6 @@ All `_into` functions and the `CompressorRef`/`DictCompressorRef`/`DecompressorR
 structs work without `alloc`. Hash tables are stack-allocated (8 KB per compress
 call at the standard size).
 
-```toml
-[dependencies]
-lz4rip = { version = "0.8", default-features = false }
-```
-
 On memory-constrained targets, pick a smaller hash table via the const-generic
 form. `CompressorRefN::<N>` (no-dict) and `DictCompressorRefN::<N>` (dict) take an
 entry count `N` (power of two, at least `MIN_ENTRIES` = 256). `CompressorRefN::<512>`
