@@ -19,7 +19,7 @@ use lz4rip_core::MINMATCH;
 ///     trainer.add_sample(msg);
 /// }
 /// let dict = trainer.train();
-/// let compressor = lz4rip_encode::Compressor::with_dict(&dict);
+/// let compressor = lz4rip_encode::DictCompressor::new(&dict);
 /// ```
 pub struct DictTrainer {
     max_dict_size: usize,
