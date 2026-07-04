@@ -361,17 +361,32 @@ fn bench_c_lz4_dict(data: &[u8], dict: &[u8], name: &str, target_ns: u64) -> Ben
     }
 }
 
-fn cache_dir() -> PathBuf {
+fn arch() -> &'static str {
+    std::env::consts::ARCH
+}
+
+fn cache_dir_for(subdir: &str) -> PathBuf {
     let dir = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
         .join(".cache")
-        .join("lz4rip");
+        .join("lz4rip")
+        .join(arch())
+        .join(subdir);
     std::fs::create_dir_all(&dir).ok();
     dir
+}
+
+fn cache_dir() -> PathBuf {
+    cache_dir_for("")
 }
 
 fn codec_cache_path(codec: &str) -> PathBuf {
     let filename = codec.replace(' ', "_").replace(['(', ')'], "");
     cache_dir().join(format!("{filename}.jsonl"))
+}
+
+fn codec_cache_path_in(subdir: &str, codec: &str) -> PathBuf {
+    let filename = codec.replace(' ', "_").replace(['(', ')'], "");
+    cache_dir_for(subdir).join(format!("{filename}.jsonl"))
 }
 
 fn load_cache(codecs: &[&str]) -> Vec<BenchResult> {
@@ -396,6 +411,22 @@ fn save_cache(results: &[BenchResult], codecs: &[&str]) {
         let path = codec_cache_path(codec);
         let mut f = std::fs::File::create(&path).unwrap();
         for r in &entries {
+            writeln!(f, "{}", r.to_json()).unwrap();
+        }
+        eprintln!("cached {} results to {}", entries.len(), path.display());
+    }
+}
+
+fn save_results_to(subdir: &str, results: &[BenchResult]) {
+    let mut by_codec: std::collections::HashMap<&str, Vec<&BenchResult>> =
+        std::collections::HashMap::new();
+    for r in results {
+        by_codec.entry(r.codec.as_str()).or_default().push(r);
+    }
+    for (codec, entries) in &by_codec {
+        let path = codec_cache_path_in(subdir, codec);
+        let mut f = std::fs::File::create(&path).unwrap();
+        for r in entries {
             writeln!(f, "{}", r.to_json()).unwrap();
         }
         eprintln!("cached {} results to {}", entries.len(), path.display());
@@ -511,22 +542,49 @@ const ALL_FILES: &[&str] = &[
     "corpus/silesia/ooffice",
 ];
 
+fn xorshift32(state: &mut u32) -> u32 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    x
+}
+
 fn json_payload(target_bytes: usize, counter_start: u64) -> Vec<u8> {
-    const LEVELS: &[&str] = &["DEBUG", "INFO", "WARN", "ERROR"];
+    const LEVELS: &[&str] = &["DEBUG", "INFO", "WARN", "ERROR", "TRACE"];
     const SERVICES: &[&str] = &[
         "api-gateway",
         "auth-svc",
         "order-svc",
         "payment-svc",
         "notify-svc",
+        "inventory-svc",
+        "shipping-svc",
+        "billing-svc",
+        "search-svc",
+        "user-svc",
+        "session-svc",
+        "analytics-svc",
+        "cache-svc",
+        "config-svc",
+        "audit-svc",
+        "rate-limiter",
     ];
-    const METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH"];
+    const METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
     const PATHS: &[&str] = &[
         "/v1/widgets",
         "/v1/users",
         "/v1/orders",
         "/v2/events",
         "/v1/health",
+        "/v1/sessions",
+        "/v1/payments",
+        "/v2/search",
+        "/v1/inventory",
+        "/v1/shipping",
+        "/v1/analytics",
+        "/v2/config",
     ];
     const REGIONS: &[&str] = &[
         "us-east-1",
@@ -534,35 +592,57 @@ fn json_payload(target_bytes: usize, counter_start: u64) -> Vec<u8> {
         "eu-west-1",
         "ap-south-1",
         "eu-central-1",
+        "ap-northeast-1",
+        "sa-east-1",
+        "ca-central-1",
     ];
-    const STATUSES: &[u16] = &[200, 201, 204, 400, 404, 500, 502, 503];
+    const STATUSES: &[u16] = &[
+        200, 201, 202, 204, 301, 302, 304, 400, 401, 403, 404, 405, 409, 422, 429, 500, 502, 503,
+        504,
+    ];
     const MSGS: &[&str] = &[
         "request handled successfully",
         "resource created",
         "cache miss, fetched from origin",
         "rate limit approaching threshold",
         "upstream timeout, retrying",
+        "authentication token refreshed",
+        "database connection pool exhausted",
+        "circuit breaker tripped",
+        "message queued for async processing",
+        "TLS handshake completed",
+        "request routed to fallback backend",
+        "payload validation passed",
+        "idempotency key matched existing result",
+        "graceful shutdown initiated",
+        "health check passed all probes",
+        "retry attempt succeeded after backoff",
     ];
     let mut out = Vec::with_capacity(target_bytes + 512);
-    let mut counter = counter_start;
+    let mut state = counter_start as u32;
+    if state == 0 {
+        state = 1;
+    }
     while out.len() < target_bytes {
-        let h = counter.wrapping_mul(0x9E3779B1) as u32;
-        let hid = format!("{h:08x}");
+        let trace_id = xorshift32(&mut state);
+        let span_id = xorshift32(&mut state);
+        let user_id = xorshift32(&mut state);
+        let r = xorshift32(&mut state) as usize;
+        let level = LEVELS[r % LEVELS.len()];
+        let service = SERVICES[(r >> 4) % SERVICES.len()];
+        let method = METHODS[(r >> 8) % METHODS.len()];
+        let path = PATHS[(r >> 12) % PATHS.len()];
+        let region = REGIONS[(r >> 16) % REGIONS.len()];
+        let status = STATUSES[(r >> 20) % STATUSES.len()];
+        let latency = (xorshift32(&mut state) % 5000) + 1;
+        let r2 = xorshift32(&mut state) as usize;
+        let msg = MSGS[r2 % MSGS.len()];
+        let host_id = xorshift32(&mut state);
         let line = format!(
-            r#"{{"ts":"2026-04-27T12:34:56.{hid}Z","level":"{}","service":"{}","trace_id":"{hid}","span_id":"{hid}","user_id":"u-{hid}","method":"{}","path":"{}","status":{},"latency_ms":{},"region":"{}","host":"{}-{hid}.svc.cluster.local","msg":"{}"}}"#,
-            LEVELS[h as usize % LEVELS.len()],
-            SERVICES[(h as usize >> 4) % SERVICES.len()],
-            METHODS[(h as usize >> 8) % METHODS.len()],
-            format_args!("{}/{hid}", PATHS[(h as usize >> 12) % PATHS.len()]),
-            STATUSES[(h as usize >> 20) % STATUSES.len()],
-            (h % 500) + 1,
-            REGIONS[(h as usize >> 16) % REGIONS.len()],
-            SERVICES[(h as usize >> 4) % SERVICES.len()],
-            MSGS[(h as usize >> 24) % MSGS.len()],
+            r#"{{"ts":"2026-04-27T12:34:56.{trace_id:08x}Z","level":"{level}","service":"{service}","trace_id":"{trace_id:08x}{span_id:08x}","span_id":"{span_id:08x}","user_id":"u-{user_id:08x}","method":"{method}","path":"{path}/{trace_id:08x}","status":{status},"latency_ms":{latency},"region":"{region}","host":"{service}-{host_id:08x}.svc.cluster.local","msg":"{msg}"}}"#,
         );
         out.extend_from_slice(line.as_bytes());
         out.push(b'\n');
-        counter += 1;
     }
     out.truncate(target_bytes);
     out
@@ -580,10 +660,7 @@ fn run_sweep(dict: &[u8]) {
     let stream = unsafe { LZ4_createStream() };
     assert!(!stream.is_null());
 
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    writeln!(out, "[").unwrap();
-    let mut first = true;
+    let mut all_results: Vec<BenchResult> = Vec::new();
 
     for &size in SWEEP_SIZES {
         let data = json_payload(size, 777_777);
@@ -616,12 +693,8 @@ fn run_sweep(dict: &[u8]) {
                 compress_ns,
                 decompress_ns,
             };
-            if !first {
-                writeln!(out, ",").unwrap();
-            }
-            write!(out, "  {}", r.to_json()).unwrap();
-            first = false;
             eprintln!("  lz4rip x {size}: {compress_ns:.0} ns comp, {decompress_ns:.0} ns decomp");
+            all_results.push(r);
         }
 
         // lz4rip (dict)
@@ -648,10 +721,10 @@ fn run_sweep(dict: &[u8]) {
                 compress_ns,
                 decompress_ns,
             };
-            write!(out, ",\n  {}", r.to_json()).unwrap();
             eprintln!(
                 "  lz4rip (dict) x {size}: {compress_ns:.0} ns comp, {decompress_ns:.0} ns decomp"
             );
+            all_results.push(r);
         }
 
         // C lz4 (no dict)
@@ -680,8 +753,8 @@ fn run_sweep(dict: &[u8]) {
                 compress_ns,
                 decompress_ns,
             };
-            write!(out, ",\n  {}", r.to_json()).unwrap();
             eprintln!("  C lz4 x {size}: {compress_ns:.0} ns comp, {decompress_ns:.0} ns decomp");
+            all_results.push(r);
         }
 
         // C lz4 (dict)
@@ -731,15 +804,15 @@ fn run_sweep(dict: &[u8]) {
                 compress_ns,
                 decompress_ns,
             };
-            write!(out, ",\n  {}", r.to_json()).unwrap();
             eprintln!(
                 "  C lz4 (dict) x {size}: {compress_ns:.0} ns comp, {decompress_ns:.0} ns decomp"
             );
+            all_results.push(r);
         }
     }
 
     unsafe { LZ4_freeStream(stream) };
-    writeln!(out, "\n]").unwrap();
+    save_results_to("sweep", &all_results);
 }
 
 const STRUCTURED_SIZES: &[usize] = &[256, 512, 1024, 2048, 4096, 8192];
@@ -747,11 +820,7 @@ const STRUCTURED_CODECS: &[&str] = &["C lz4", "lz4rip", "lz4_flex unsafe", "lz4_
 
 fn run_structured(only: &[String]) {
     let target_ns = 20_000_000u64;
-
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    writeln!(out, "[").unwrap();
-    let mut first = true;
+    let mut all_results: Vec<BenchResult> = Vec::new();
 
     for &size in STRUCTURED_SIZES {
         let data = json_payload(size, 42_000);
@@ -856,15 +925,11 @@ fn run_structured(only: &[String]) {
                 _ => unreachable!(),
             };
 
-            if !first {
-                writeln!(out, ",").unwrap();
-            }
-            write!(out, "  {}", r.to_json()).unwrap();
-            first = false;
+            all_results.push(r);
         }
     }
 
-    writeln!(out, "\n]").unwrap();
+    save_results_to("structured", &all_results);
 }
 
 fn run_structured_dict(only: &[String]) {
@@ -887,10 +952,7 @@ fn run_structured_dict(only: &[String]) {
     let stream = unsafe { LZ4_createStream() };
     assert!(!stream.is_null());
 
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    writeln!(out, "[").unwrap();
-    let mut first = true;
+    let mut all_results: Vec<BenchResult> = Vec::new();
 
     for &size in STRUCTURED_SIZES {
         let data = json_payload(size, 42_000);
@@ -991,16 +1053,12 @@ fn run_structured_dict(only: &[String]) {
                 _ => unreachable!(),
             };
 
-            if !first {
-                writeln!(out, ",").unwrap();
-            }
-            write!(out, "  {}", r.to_json()).unwrap();
-            first = false;
+            all_results.push(r);
         }
     }
 
     unsafe { LZ4_freeStream(stream) };
-    writeln!(out, "\n]").unwrap();
+    save_results_to("structured", &all_results);
 }
 
 fn main() {
@@ -1030,9 +1088,11 @@ fn main() {
                 }
             }
             "--sweep" => {
-                i += 1;
-                if i < args.len() {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    i += 1;
                     sweep_dict = Some(args[i].clone());
+                } else {
+                    sweep_dict = Some(String::new());
                 }
             }
             "--structured" => {
@@ -1068,8 +1128,21 @@ fn main() {
         return;
     }
 
-    if let Some(ref dp) = sweep_dict {
-        let dict = std::fs::read(dp).unwrap_or_else(|e| panic!("cannot read dict {dp}: {e}"));
+    if sweep_dict.is_some() {
+        let dict = match sweep_dict {
+            Some(ref dp) if !dp.is_empty() => {
+                std::fs::read(dp).unwrap_or_else(|e| panic!("cannot read dict {dp}: {e}"))
+            }
+            _ => {
+                eprintln!("  training sweep dict (2048 bytes)...");
+                let mut trainer = lz4rip::block::DictTrainer::new(2048);
+                for i in 0..2000u64 {
+                    let sample = json_payload(128 + (i as usize * 7) % 1920, i * 2654435761);
+                    trainer.add_sample(&sample);
+                }
+                trainer.train()
+            }
+        };
         run_sweep(&dict);
         return;
     }
@@ -1141,13 +1214,4 @@ fn main() {
     }
 
     save_cache(&results, codecs);
-
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    writeln!(out, "[").unwrap();
-    for (i, r) in results.iter().enumerate() {
-        let comma = if i + 1 < results.len() { "," } else { "" };
-        writeln!(out, "  {}{}", r.to_json(), comma).unwrap();
-    }
-    writeln!(out, "]").unwrap();
 }
