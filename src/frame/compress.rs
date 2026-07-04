@@ -135,15 +135,25 @@ impl<W: io::Write> FrameEncoder<W> {
 
     /// Creates a new Encoder that compresses every block using the supplied external
     /// dictionary.
-    pub fn with_dictionary(wtr: W, dict: &[u8], dict_id: u32) -> Self {
-        let frame_info = FrameInfo {
-            block_mode: BlockMode::Independent,
-            dict_id: Some(dict_id),
-            ..Default::default()
-        };
+    ///
+    /// When `frame_info` is `None`, uses default settings with
+    /// [`BlockMode::Independent`]. When `Some`, the supplied settings are used
+    /// but `block_mode` must be [`BlockMode::Independent`] (dictionary
+    /// compression with linked blocks is not yet supported).
+    pub fn with_dictionary(
+        wtr: W,
+        dict: &[u8],
+        dict_id: u32,
+        frame_info: Option<FrameInfo>,
+    ) -> Result<Self, Error> {
+        let mut frame_info = frame_info.unwrap_or_default();
+        if frame_info.block_mode != BlockMode::Independent {
+            return Err(Error::DictionaryRequiresIndependentBlocks);
+        }
+        frame_info.dict_id = Some(dict_id);
         let mut enc = Self::with_frame_info(frame_info, wtr);
         enc.dict = dict.to_vec();
-        enc
+        Ok(enc)
     }
 
     /// The frame information used by this Encoder.
