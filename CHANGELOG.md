@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-04
+
 ### Added
 
 - `paranoid` feature: compiles every crate with `#![forbid(unsafe_code)]`, replacing each unchecked memory op with a safe twin of the same signature. No `unsafe` at all; byte-for-byte compatible with the default build.
@@ -13,6 +15,7 @@
 - Removed the self-referential `from_raw_parts` from the owning compressor; the dictionary and hash tables are now sibling fields. `crates/encode/src/compressor.rs` is now `#![forbid(unsafe_code)]`. The isolated-unsafe boundary is now 15 blocks in 3 modules (was 16 in 4).
 - Renamed crate-private fast-path helpers from `*_unchecked` to `*_inbounds` where the name describes the caller precondition rather than the default implementation.
 - Paranoid encoder: remove saturating arithmetic from the safe match-length loop after validating the in-bounds precondition with debug assertions.
+- Rust 2024 edition.
 
 ### Fixed
 

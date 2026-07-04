@@ -18,38 +18,28 @@ running). Always set it:
 export LZ4RIP_HW_EXTRAS="performance governor,turbo off"
 ```
 
-Generate all charts (pipeline, summary, dict2k, structured, sweep):
+The bench writes results to `~/.cache/lz4rip/<arch>/` (and subdirs for sweep/structured).
+Chart generation reads from cache. Two separate steps, no piping.
+
+Bench all impls (including paranoid) and generate all charts:
 ```sh
-# pipeline + summary + dict2k
-taskset -c 0 cargo run --release --example lz4rip_bench 2>/dev/null | \
-  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py /dev/stdin doc/charts/x86_64
-
-# structured (no-dict and dict variants)
-taskset -c 0 cargo run --release --example lz4rip_bench -- --structured 2>/dev/null | \
-  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --structured /dev/stdin doc/charts/x86_64/structured
-taskset -c 0 cargo run --release --example lz4rip_bench -- --structured-dict 2>/dev/null | \
-  LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --structured-dict /dev/stdin doc/charts/x86_64/structured
-
-# sweep (slow, ~5 min)
-# generate_sweep_chart aborts if LZ4RIP_HW_EXTRAS is unset and sysfs governor != performance
-LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 -c \
-  "import sys; sys.path.insert(0,'benches'); from pathlib import Path; import plot_bench; plot_bench.generate_sweep_chart(Path('doc/charts/x86_64'))"
+taskset -c 0 cargo run --release --example lz4rip_bench && \
+taskset -c 0 cargo run --release --example lz4rip_bench --features paranoid && \
+taskset -c 0 cargo run --release --example lz4rip_bench -- --structured && \
+taskset -c 0 cargo run --release --example lz4rip_bench -- --structured-dict && \
+taskset -c 0 cargo run --release --example lz4rip_bench -- --sweep && \
+LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --all doc/charts/x86_64
 ```
 
-Rerun only lz4rip (other implementations served from `~/.cache/lz4rip/`), then
-regenerate charts from merged cache:
+Rerun only lz4rip (other impls served from cache), then regenerate charts:
 ```sh
-taskset -c 0 cargo run --release --example lz4rip_bench -- --impl lz4rip 2>/dev/null > /tmp/lz4rip_results.json
-python3 - <<'EOF'
-import json
-from pathlib import Path
-cache = Path.home() / '.cache/lz4rip'
-results = []
-for f in ['C_lz4.jsonl', 'lz4rip.jsonl', 'lz4_flex_unsafe.jsonl', 'lz4_flex.jsonl']:
-    results += [json.loads(l) for l in (cache / f).read_text().splitlines() if l.strip()]
-Path('/tmp/merged_results.json').write_text(json.dumps(results))
-EOF
-LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py /tmp/merged_results.json doc/charts/x86_64
+taskset -c 0 cargo run --release --example lz4rip_bench -- --impl lz4rip && \
+LZ4RIP_HW_EXTRAS="performance governor,turbo off" python3 benches/plot_bench.py --all doc/charts/x86_64
+```
+
+Clear a specific impl's cache to force re-bench:
+```sh
+rm ~/.cache/lz4rip/x86_64/lz4rip.jsonl
 ```
 
 ## Miri
@@ -67,6 +57,24 @@ MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test
 ```
 
 `-Zmiri-disable-isolation` is needed because proptest calls `getcwd`.
+
+## Releasing
+
+`release-plz` runs on every push to `main`
+(`.github/workflows/release-plz.yml`). It opens or updates a release PR,
+creates annotated tags after merge, publishes to crates.io, and creates
+GitHub releases. Configuration lives in `release-plz.toml`.
+
+### Steps
+
+1. **Review the release-plz PR.** Verify semver bumps.
+
+2. **Curate changelogs.** For each bumped crate, insert a new
+   `## [x.y.z]` section below `## [Unreleased]`. Never modify existing
+   versioned sections.
+
+3. **Merge the release PR.** release-plz tags and publishes to
+   crates.io automatically.
 
 ## Fuzzing
 

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate benchmark pipeline SVG from JSON (array or JSONL).
+"""Generate benchmark charts from cached results.
+
+Results are read from ~/.cache/lz4rip/<arch>/ (written by lz4rip_bench).
 
 Usage:
-    taskset -c 0 cargo run --release --example lz4rip_bench 2>/dev/null \
-        | python3 benches/plot_bench.py /dev/stdin doc/charts
+    python3 benches/plot_bench.py doc/charts/x86_64          # all charts
+    python3 benches/plot_bench.py --sweep doc/charts/x86_64  # sweep only
+    python3 benches/plot_bench.py --structured doc/charts/x86_64/structured
 """
 
 import json
@@ -595,7 +598,10 @@ def run_dict_bench(dict_path, extra_file):
         return []
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
-    return json.loads(result.stdout)
+    import platform
+    arch = platform.machine()
+    base = cache_base() / arch
+    return load_cache_dir(base)
 
 
 def dict_chart(results, out_dir):
@@ -1138,10 +1144,12 @@ def generate_sweep_chart(out_dir):
             return
         if result.stderr:
             print(result.stderr, end="", file=sys.stderr)
-        results = json.loads(result.stdout)
 
+    import platform
+    arch = platform.machine()
+    results = load_cache_dir(cache_base() / arch / "sweep")
     if not results:
-        print("  skipping sweep chart: no results", file=sys.stderr)
+        print("  skipping sweep chart: no results in cache", file=sys.stderr)
         return
 
     svg = sweep_chart(results)
@@ -1343,20 +1351,49 @@ def structured_chart(results, codec_order=None, colors=None, labels=None, title=
     return "\n".join(L) + "\n"
 
 
+def detect_arch():
+    import platform
+    return platform.machine()
+
+
+def cache_base():
+    home = Path(os.environ.get("HOME", "."))
+    return home / ".cache" / "lz4rip"
+
+
+def load_cache_dir(cache_dir):
+    results = []
+    if not cache_dir.is_dir():
+        return results
+    for f in sorted(cache_dir.glob("*.jsonl")):
+        for line in f.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    results.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return results
+
+
 def main():
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <results.json|results.jsonl> [output_dir]", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} [--sweep|--structured|--all] <output_dir>",
+              file=sys.stderr)
+        print(f"  Reads cached results from ~/.cache/lz4rip/<arch>/", file=sys.stderr)
         sys.exit(1)
 
-    # standalone sweep mode: plot_bench.py --sweep <sweep_results.json> [output_dir]
+    arch = detect_arch()
+    base = cache_base() / arch
+
+    # --sweep mode: reads from cache/<arch>/sweep/
     if sys.argv[1] == "--sweep":
-        if len(sys.argv) < 3:
-            print(f"Usage: {sys.argv[0]} --sweep <sweep_results.json> [output_dir]",
-                  file=sys.stderr)
-            sys.exit(1)
-        results = load_results(sys.argv[2])
-        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
+        out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("doc/charts")
         out_dir.mkdir(exist_ok=True)
+        results = load_cache_dir(base / "sweep")
+        if not results:
+            print("  no sweep results in cache", file=sys.stderr)
+            return
         svg = sweep_chart(results)
         if svg:
             out_path = out_dir / "sweep.svg"
@@ -1364,47 +1401,48 @@ def main():
             print(f"  wrote {out_path}")
         return
 
-    # structured mode: plot_bench.py --structured <results.json> [output_dir]
+    # --structured mode: reads from cache/<arch>/structured/
     if sys.argv[1] == "--structured":
-        if len(sys.argv) < 3:
-            print(f"Usage: {sys.argv[0]} --structured <results.json> [output_dir]",
-                  file=sys.stderr)
-            sys.exit(1)
-        results = load_results(sys.argv[2])
-        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
+        out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("doc/charts")
         out_dir.mkdir(parents=True, exist_ok=True)
-        svg = structured_chart(results)
-        if svg:
-            out_path = out_dir / "no_dict.svg"
-            out_path.write_text(svg)
-            print(f"  wrote {out_path}")
+        results = load_cache_dir(base / "structured")
+        if not results:
+            print("  no structured results in cache", file=sys.stderr)
+            return
+        no_dict = [r for r in results if "dict" not in r["codec"].lower()]
+        if no_dict:
+            svg = structured_chart(no_dict)
+            if svg:
+                out_path = out_dir / "no_dict.svg"
+                out_path.write_text(svg)
+                print(f"  wrote {out_path}")
+        dict_results = [r for r in results if "dict" in r["codec"].lower()]
+        if dict_results:
+            svg = structured_chart(
+                dict_results,
+                codec_order=DICT_CODEC_ORDER,
+                colors=DICT_COLORS,
+                labels={"C lz4 (dict 2K)": "lz4 (C, dict)", "lz4rip (dict 2K)": "lz4rip (dict)"},
+                title="LZ4 Structured JSON + Dict (2 KB)",
+            )
+            if svg:
+                out_path = out_dir / "dict2k.svg"
+                out_path.write_text(svg)
+                print(f"  wrote {out_path}")
         return
 
-    # structured dict mode: plot_bench.py --structured-dict <results.json> [output_dir]
-    if sys.argv[1] == "--structured-dict":
-        if len(sys.argv) < 3:
-            print(f"Usage: {sys.argv[0]} --structured-dict <results.json> [output_dir]",
-                  file=sys.stderr)
-            sys.exit(1)
-        results = load_results(sys.argv[2])
-        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("doc/charts")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        svg = structured_chart(
-            results,
-            codec_order=DICT_CODEC_ORDER,
-            colors=DICT_COLORS,
-            labels={"C lz4 (dict 2K)": "lz4 (C, dict)", "lz4rip (dict 2K)": "lz4rip (dict)"},
-            title="LZ4 Structured JSON + Dict (2 KB)",
-        )
-        if svg:
-            out_path = out_dir / "dict2k.svg"
-            out_path.write_text(svg)
-            print(f"  wrote {out_path}")
-        return
-
-    results = load_results(sys.argv[1])
-    out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("doc/charts")
+    # --all mode: generate all charts from all cache subdirs
+    if sys.argv[1] == "--all":
+        out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("doc/charts")
+    else:
+        out_dir = Path(sys.argv[1])
     out_dir.mkdir(exist_ok=True)
+
+    # Main charts (pipeline + summary) from cache/<arch>/
+    results = load_cache_dir(base)
+    if not results:
+        print(f"  no results in {base}", file=sys.stderr)
+        sys.exit(1)
 
     svg = pipeline_chart(results, out_dir)
     out_path = out_dir / "pipeline.svg"
@@ -1416,7 +1454,43 @@ def main():
     out_path.write_text(svg)
     print(f"  wrote {out_path}")
 
+    # Dict chart from main cache (dict codecs coexist there)
     generate_dict_charts(out_dir)
+
+    # Sweep chart from cache/<arch>/sweep/
+    sweep_results = load_cache_dir(base / "sweep")
+    if sweep_results:
+        svg = sweep_chart(sweep_results)
+        if svg:
+            out_path = out_dir / "sweep.svg"
+            out_path.write_text(svg)
+            print(f"  wrote {out_path}")
+
+    # Structured charts from cache/<arch>/structured/
+    struct_results = load_cache_dir(base / "structured")
+    if struct_results:
+        struct_dir = out_dir / "structured"
+        struct_dir.mkdir(exist_ok=True)
+        no_dict = [r for r in struct_results if "dict" not in r["codec"].lower()]
+        if no_dict:
+            svg = structured_chart(no_dict)
+            if svg:
+                out_path = struct_dir / "no_dict.svg"
+                out_path.write_text(svg)
+                print(f"  wrote {out_path}")
+        dict_r = [r for r in struct_results if "dict" in r["codec"].lower()]
+        if dict_r:
+            svg = structured_chart(
+                dict_r,
+                codec_order=DICT_CODEC_ORDER,
+                colors=DICT_COLORS,
+                labels={"C lz4 (dict 2K)": "lz4 (C, dict)", "lz4rip (dict 2K)": "lz4rip (dict)"},
+                title="LZ4 Structured JSON + Dict (2 KB)",
+            )
+            if svg:
+                out_path = struct_dir / "dict2k.svg"
+                out_path.write_text(svg)
+                print(f"  wrote {out_path}")
 
 
 if __name__ == "__main__":
