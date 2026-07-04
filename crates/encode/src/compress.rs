@@ -301,6 +301,21 @@ pub fn compress_into_sink_with_table<
     )
 }
 
+/// Seed a caller-owned `HashTableU32` from uncompressed input bytes.
+///
+/// This is cross-crate plumbing for the frame encoder. Dictionary-compressed
+/// linked frames compress the first block with the normal dictionary path, then
+/// seed the reusable linked-block table from that decoded block so later blocks
+/// can reference it.
+pub fn seed_table_with_input(table: &mut HashTableU32, input: &[u8], input_stream_offset: usize) {
+    let mut i = 0usize;
+    while i + core::mem::size_of::<usize>() <= input.len() {
+        let hash = <HashTableU32 as HashTable>::get_hash_at(input, i);
+        table.put_at(hash, i + input_stream_offset);
+        i += 3;
+    }
+}
+
 /// Dual-table compression for `CompressorRef::with_dict`.
 #[inline(never)]
 fn compress_with_dict_table<T: HashTable, S: Sink>(

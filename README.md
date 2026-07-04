@@ -199,6 +199,42 @@ decoder.read_to_string(&mut output).unwrap();
 assert_eq!(output, "Hello frame format!");
 ```
 
+Frame blocks are independent by default for speed. Use `BlockMode::Linked` when
+ratio matters more and the stream has repeated data across block boundaries:
+
+```rust
+use lz4rip::frame::{BlockMode, FrameEncoder, FrameInfo};
+use std::io::Write;
+
+const MESSAGE_REPEAT_COUNT: usize = 4096;
+
+let frame_info = FrameInfo::new().block_mode(BlockMode::Linked);
+let mut encoder = FrameEncoder::with_frame_info(frame_info, Vec::new());
+encoder
+    .write_all(&b"repeated data across frame blocks".repeat(MESSAGE_REPEAT_COUNT))
+    .unwrap();
+let compressed = encoder.finish().unwrap();
+```
+
+Linked blocks also work with frame dictionaries:
+
+```rust
+use lz4rip::frame::{BlockMode, FrameEncoder, FrameInfo};
+use std::io::Write;
+
+const DICT_ID: u32 = u32::from_be_bytes(*b"lz4r");
+const MESSAGE_REPEAT_COUNT: usize = 4096;
+
+let dict = b"shared prefix bytes";
+let frame_info = FrameInfo::new().block_mode(BlockMode::Linked);
+let mut encoder =
+    FrameEncoder::with_dictionary(Vec::new(), dict, DICT_ID, Some(frame_info)).unwrap();
+encoder
+    .write_all(&b"shared prefix bytes in the message".repeat(MESSAGE_REPEAT_COUNT))
+    .unwrap();
+let compressed = encoder.finish().unwrap();
+```
+
 ## Safety
 
 [SAFETY.md](SAFETY.md) documents the unsafe boundary and catalogs C lz4 memory safety bugs that Rust prevents by construction.

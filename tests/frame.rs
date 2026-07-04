@@ -6,6 +6,11 @@ use common::*;
 use lz4rip::frame::BlockSize;
 use std::io::{Read, Write};
 
+const LINKED_DICT_ID: u32 = 1;
+const LINKED_DICT_ROUNDTRIP_REPEAT_COUNT: usize = 3000;
+const LINKED_DICT_FRAME_BLOCK_BYTES: usize = 64 * 1024;
+const LINKED_DICT_REPEAT_START: usize = LINKED_DICT_FRAME_BLOCK_BYTES / 2;
+
 #[test]
 fn concatenated() {
     let mut enc = lz4rip::frame::FrameEncoder::new(Vec::new());
@@ -162,19 +167,64 @@ fn dict_with_frame_info_round_trip_and_preserves_settings() {
 }
 
 #[test]
-fn dict_with_frame_info_rejects_linked_blocks() {
+fn dict_with_linked_blocks_round_trip() {
     let frame_info = lz4rip::frame::FrameInfo::new().block_mode(lz4rip::frame::BlockMode::Linked);
-    let result = lz4rip::frame::FrameEncoder::with_dictionary(
-        Vec::new(),
-        b"dictionary",
-        1,
-        Some(frame_info),
-    );
+    let dict = b"event_type=metric service=ingest shard= value= ".repeat(16);
+    let msg = b"event_type=metric service=ingest shard=3 value=42\n"
+        .repeat(LINKED_DICT_ROUNDTRIP_REPEAT_COUNT);
 
-    assert!(matches!(
-        result,
-        Err(lz4rip::frame::Error::DictionaryRequiresIndependentBlocks)
-    ));
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(
+        Vec::new(),
+        &dict,
+        LINKED_DICT_ID,
+        Some(frame_info),
+    )
+    .unwrap();
+    enc.write_all(&msg).unwrap();
+    let compressed = enc.finish().unwrap();
+
+    let mut dec = lz4rip::frame::FrameDecoder::with_dictionary(&*compressed, &dict, LINKED_DICT_ID);
+    let mut out = Vec::new();
+    dec.read_to_end(&mut out).unwrap();
+    assert_eq!(out, msg);
+}
+
+#[test]
+fn linked_blocks_improve_multi_block_ratio_with_dictionary() {
+    let dict = b"prefix=orders region=west status=complete payload=".repeat(32);
+    let first_block = &COMPRESSION66JSON[..LINKED_DICT_FRAME_BLOCK_BYTES];
+    let mut msg = first_block.to_vec();
+    msg.extend_from_slice(&first_block[LINKED_DICT_REPEAT_START..]);
+    msg.extend_from_slice(&first_block[LINKED_DICT_REPEAT_START..]);
+
+    let independent_info = lz4rip::frame::FrameInfo::new()
+        .block_mode(lz4rip::frame::BlockMode::Independent)
+        .block_size(lz4rip::frame::BlockSize::Max64KB);
+    let linked_info = lz4rip::frame::FrameInfo::new()
+        .block_mode(lz4rip::frame::BlockMode::Linked)
+        .block_size(lz4rip::frame::BlockSize::Max64KB);
+
+    let mut independent = lz4rip::frame::FrameEncoder::with_dictionary(
+        Vec::new(),
+        &dict,
+        LINKED_DICT_ID,
+        Some(independent_info),
+    )
+    .unwrap();
+    independent.write_all(&msg).unwrap();
+    let independent = independent.finish().unwrap();
+
+    let mut linked = lz4rip::frame::FrameEncoder::with_dictionary(
+        Vec::new(),
+        &dict,
+        LINKED_DICT_ID,
+        Some(linked_info),
+    )
+    .unwrap();
+    linked.write_all(&msg).unwrap();
+    let linked = linked.finish().unwrap();
+
+    assert!(linked.len() < independent.len());
 }
 
 #[test]

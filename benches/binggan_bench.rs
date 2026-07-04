@@ -29,12 +29,23 @@ const ALL: &[&[u8]] = &[
     MR as &[u8],
 ];
 
+#[cfg(feature = "frame")]
+type FrameDictInput = (Vec<u8>, Vec<u8>);
+
+#[cfg(feature = "frame")]
+const FRAME_DICT_ID: u32 = 1;
+#[cfg(feature = "frame")]
+const FRAME_DICT_BLOCK_BYTES: usize = 64 * 1024;
+#[cfg(feature = "frame")]
+const FRAME_DICT_REPEAT_START: usize = FRAME_DICT_BLOCK_BYTES / 2;
+
 fn main() {
     #[cfg(feature = "frame")]
     {
         let data_sets = get_frame_datasets();
         frame_decompress(&data_sets);
         frame_compress(InputGroup::new_with_inputs(data_sets));
+        frame_dict_compress(InputGroup::new_with_inputs(get_frame_dict_datasets()));
     }
 
     let named_data = ALL
@@ -118,6 +129,46 @@ fn frame_compress(mut runner: InputGroup<Vec<u8>, usize>) {
     runner.run();
 }
 
+#[cfg(feature = "frame")]
+fn frame_dict_compress(mut runner: InputGroup<FrameDictInput, usize>) {
+    runner.set_name("frame_dict_compress");
+    runner.add_plugin(PeakMemAllocPlugin::new(&GLOBAL));
+    runner.throughput(|(data, _)| data.len());
+
+    runner.register("lz4rip independent", move |(data, dict)| {
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.block_size = lz4rip::frame::BlockSize::Max64KB;
+        frame_info.block_mode = lz4rip::frame::BlockMode::Independent;
+        let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(
+            Vec::new(),
+            dict,
+            FRAME_DICT_ID,
+            Some(frame_info),
+        )
+        .unwrap();
+        enc.write_all(data).unwrap();
+        let out = black_box(enc.finish().unwrap());
+        out.len()
+    });
+    runner.register("lz4rip linked", move |(data, dict)| {
+        let mut frame_info = lz4rip::frame::FrameInfo::new();
+        frame_info.block_size = lz4rip::frame::BlockSize::Max64KB;
+        frame_info.block_mode = lz4rip::frame::BlockMode::Linked;
+        let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(
+            Vec::new(),
+            dict,
+            FRAME_DICT_ID,
+            Some(frame_info),
+        )
+        .unwrap();
+        enc.write_all(data).unwrap();
+        let out = black_box(enc.finish().unwrap());
+        out.len()
+    });
+
+    runner.run();
+}
+
 fn block_compress(mut runner: InputGroup<Vec<u8>, usize>) {
     runner.set_name("block_compress");
     // Set the peak mem allocator. This will enable peak memory reporting.
@@ -193,6 +244,17 @@ fn get_frame_datasets() -> Vec<(String, Vec<u8>)> {
             (path.to_string(), buf)
         })
         .collect()
+}
+
+#[cfg(feature = "frame")]
+fn get_frame_dict_datasets() -> Vec<(String, FrameDictInput)> {
+    let dict = b"prefix=orders region=west status=complete payload=".repeat(32);
+    let first_block = &COMPRESSION66K[..FRAME_DICT_BLOCK_BYTES];
+    let mut data = first_block.to_vec();
+    data.extend_from_slice(&first_block[FRAME_DICT_REPEAT_START..]);
+    data.extend_from_slice(&first_block[FRAME_DICT_REPEAT_START..]);
+
+    vec![("linked-dict-repeat".to_string(), (data, dict))]
 }
 
 fn compress_snap(input: &[u8]) -> Vec<u8> {
