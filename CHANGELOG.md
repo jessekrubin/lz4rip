@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-05
+
 ### Added
 
 - Frame dictionary compression now supports `BlockMode::Linked`, so blocks after the first can reference previous decoded blocks instead of only the external dictionary.
