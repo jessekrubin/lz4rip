@@ -36,7 +36,9 @@ fuzz_target!(|input: Input| {
     let dict_id = 0x1234_5678;
 
     // Compress with dict (Independent block mode, default block size).
-    let mut enc = FrameEncoder::with_dictionary(Vec::with_capacity(data.len()), dict, dict_id);
+    let mut enc =
+        FrameEncoder::with_dictionary(Vec::with_capacity(data.len()), dict, dict_id, None)
+            .unwrap();
     for chunk in data.chunks(chunk_size) {
         enc.write_all(chunk).unwrap();
     }

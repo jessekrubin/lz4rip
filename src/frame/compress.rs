@@ -135,53 +135,25 @@ impl<W: io::Write> FrameEncoder<W> {
 
     /// Creates a new Encoder that compresses every block using the supplied external
     /// dictionary.
-    pub fn with_dictionary(wtr: W, dict: &[u8], dict_id: u32) -> Self {
-        let frame_info = FrameInfo {
-            block_mode: BlockMode::Independent,
-            dict_id: Some(dict_id),
-            ..Default::default()
-        };
-        let mut enc = Self::with_frame_info(frame_info, wtr);
-        enc.dict = dict.to_vec();
-        enc
-    }
-
-    /// Creates a new Encoder with the specified [`FrameInfo`] and external dictionary.
     ///
-    /// Dictionary compression currently requires [`BlockMode::Independent`].
-    /// All other frame settings are preserved.
-    pub fn with_frame_info_and_dictionary(
-        frame_info: FrameInfo,
+    /// When `frame_info` is `None`, uses default settings with
+    /// [`BlockMode::Independent`]. When `Some`, the supplied settings are used
+    /// but `block_mode` must be [`BlockMode::Independent`] (dictionary
+    /// compression with linked blocks is not yet supported).
+    pub fn with_dictionary(
         wtr: W,
         dict: &[u8],
         dict_id: u32,
+        frame_info: Option<FrameInfo>,
     ) -> Result<Self, Error> {
+        let mut frame_info = frame_info.unwrap_or_default();
         if frame_info.block_mode != BlockMode::Independent {
-            Err(Error::DictionaryRequiresIndependentBlocks)
-        } else {
-            Ok(Self::with_frame_info_and_dictionary_unchecked(
-                frame_info, wtr, dict, dict_id,
-            ))
-        }
-    }
-
-    /// Creates a new Encoder with the specified [`FrameInfo`] and external dictionary.
-    ///
-    /// Dictionary compression currently requires [`BlockMode::Independent`].
-    /// All other frame settings are preserved.
-    pub fn with_frame_info_and_dictionary_unchecked(
-        mut frame_info: FrameInfo,
-        wtr: W,
-        dict: &[u8],
-        dict_id: u32,
-    ) -> Self {
-        if frame_info.block_mode != BlockMode::Independent {
-            panic!("block mode must be independent when using a dictionary");
+            return Err(Error::DictionaryRequiresIndependentBlocks);
         }
         frame_info.dict_id = Some(dict_id);
         let mut enc = Self::with_frame_info(frame_info, wtr);
         enc.dict = dict.to_vec();
-        enc
+        Ok(enc)
     }
 
     /// The frame information used by this Encoder.

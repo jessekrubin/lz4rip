@@ -112,7 +112,8 @@ fn dict_round_trip() {
     let dict_id: u32 = 0xDEADBEEF;
     let msg = b"JSON schema v1 field name=hello value=world type=str len=5";
 
-    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, dict_id);
+    let mut enc =
+        lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, dict_id, None).unwrap();
     enc.write_all(msg).unwrap();
     let compressed = enc.finish().unwrap();
 
@@ -136,11 +137,11 @@ fn dict_with_frame_info_round_trip_and_preserves_settings() {
         .content_checksum(true)
         .content_size(Some(msg.len() as u64));
 
-    let mut enc = lz4rip::frame::FrameEncoder::with_frame_info_and_dictionary(
-        frame_info.clone(),
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(
         Vec::new(),
         &dict,
         dict_id,
+        Some(frame_info.clone()),
     )
     .unwrap();
     assert_eq!(enc.frame_info().block_mode, frame_info.block_mode);
@@ -163,11 +164,11 @@ fn dict_with_frame_info_round_trip_and_preserves_settings() {
 #[test]
 fn dict_with_frame_info_rejects_linked_blocks() {
     let frame_info = lz4rip::frame::FrameInfo::new().block_mode(lz4rip::frame::BlockMode::Linked);
-    let result = lz4rip::frame::FrameEncoder::with_frame_info_and_dictionary(
-        frame_info,
+    let result = lz4rip::frame::FrameEncoder::with_dictionary(
         Vec::new(),
         b"dictionary",
         1,
+        Some(frame_info),
     );
 
     assert!(matches!(
@@ -180,7 +181,8 @@ fn dict_with_frame_info_rejects_linked_blocks() {
 fn dict_id_mismatch_fails() {
     let dict = b"prefix AAA ".repeat(8);
     let msg = b"prefix AAA tail";
-    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 0xAAAA_AAAA);
+    let mut enc =
+        lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 0xAAAA_AAAA, None).unwrap();
     enc.write_all(msg).unwrap();
     let compressed = enc.finish().unwrap();
 
@@ -199,7 +201,7 @@ fn dict_id_mismatch_fails() {
 #[test]
 fn dict_required_when_frame_declares_one() {
     let dict = b"common ".repeat(8);
-    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 1);
+    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, 1, None).unwrap();
     enc.write_all(b"common payload").unwrap();
     let compressed = enc.finish().unwrap();
 
