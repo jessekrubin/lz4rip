@@ -69,7 +69,7 @@
 /// See the [spec](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md).
 ///
 /// Without the `alloc` feature, only [`decompress_into`],
-/// [`decompress_into_with_dict`], and [`Decompressor`] are available.
+/// [`decompress_into_with_dict`], and [`DecompressorRef`] are available.
 ///
 /// # Example: block format roundtrip
 /// ```
