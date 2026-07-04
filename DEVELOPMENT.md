@@ -58,6 +58,24 @@ MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test
 
 `-Zmiri-disable-isolation` is needed because proptest calls `getcwd`.
 
+## Releasing
+
+`release-plz` runs on every push to `main`
+(`.github/workflows/release-plz.yml`). It opens or updates a release PR,
+creates annotated tags after merge, publishes to crates.io, and creates
+GitHub releases. Configuration lives in `release-plz.toml`.
+
+### Steps
+
+1. **Review the release-plz PR.** Verify semver bumps.
+
+2. **Curate changelogs.** For each bumped crate, insert a new
+   `## [x.y.z]` section below `## [Unreleased]`. Never modify existing
+   versioned sections.
+
+3. **Merge the release PR.** release-plz tags and publishes to
+   crates.io automatically.
+
 ## Fuzzing
 
 Requires nightly:
