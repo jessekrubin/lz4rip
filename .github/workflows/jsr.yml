@@ -25,8 +25,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
       - run: cargo install wasm-pack
       - run: cd jsr && bash build.sh
       - run: cd jsr && deno test --allow-read
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: cd jsr && deno publish
+        run: cd jsr && npx --yes jsr publish
