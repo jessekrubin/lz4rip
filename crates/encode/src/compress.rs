@@ -278,7 +278,7 @@ pub(crate) fn compress_internal<
 /// This is cross-crate plumbing for the frame encoder. It keeps the internal
 /// `HashTable` trait private, so downstream safe code cannot corrupt match
 /// finder invariants that protect unchecked reads.
-pub fn compress_into_sink_with_table<
+pub(crate) fn compress_into_sink_with_table_inner<
     const USE_DICT: bool,
     const HAS_OFFSET: bool,
     const READONLY: bool,
