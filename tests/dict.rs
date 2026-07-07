@@ -5,7 +5,22 @@ use lz4rip::block::{
 use more_asserts::assert_lt;
 
 const HDFS: &[u8] = include_bytes!("../corpus/hdfs.json");
-const JSON66K: &[u8] = include_bytes!("../corpus/compression_66k_JSON.txt");
+
+fn json_payload(target_bytes: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(target_bytes);
+    let mut i = 0u64;
+    while out.len() < target_bytes {
+        let line = format!(
+            r#"{{"ts":1700000000,"level":"INFO","service":"ingest","event":{},"message":"repeatable structured payload for lz4 dictionary tests"}}"#,
+            i
+        );
+        out.extend_from_slice(line.as_bytes());
+        out.push(b'\n');
+        i += 1;
+    }
+    out.truncate(target_bytes);
+    out
+}
 
 fn dict_roundtrip(corpus: &[u8], dict_bytes: usize) {
     let dict = &corpus[..dict_bytes];
@@ -35,7 +50,8 @@ fn hdfs_dict_64k() {
 
 #[test]
 fn json66k_dict_4k() {
-    dict_roundtrip(JSON66K, 4096);
+    let corpus = json_payload(66_675);
+    dict_roundtrip(&corpus, 4096);
 }
 
 #[test]

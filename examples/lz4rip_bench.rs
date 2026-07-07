@@ -456,24 +456,32 @@ const DICT_CODECS: &[&str] = &["C lz4 (dict 2K)", "lz4rip paranoid (dict 2K)"];
 
 const SILESIA_DOWNLOADS: &[(&str, &str)] = &[
     (
-        "corpus/dickens.txt",
+        "corpus/silesia/dickens",
         "https://sun.aei.polsl.pl/~sdeor/corpus/dickens.bz2",
-    ),
-    (
-        "corpus/silesia/mr",
-        "https://sun.aei.polsl.pl/~sdeor/corpus/mr.bz2",
     ),
     (
         "corpus/silesia/mozilla",
         "https://sun.aei.polsl.pl/~sdeor/corpus/mozilla.bz2",
     ),
     (
+        "corpus/silesia/mr",
+        "https://sun.aei.polsl.pl/~sdeor/corpus/mr.bz2",
+    ),
+    (
         "corpus/silesia/nci",
         "https://sun.aei.polsl.pl/~sdeor/corpus/nci.bz2",
     ),
     (
+        "corpus/silesia/ooffice",
+        "https://sun.aei.polsl.pl/~sdeor/corpus/ooffice.bz2",
+    ),
+    (
         "corpus/silesia/osdb",
         "https://sun.aei.polsl.pl/~sdeor/corpus/osdb.bz2",
+    ),
+    (
+        "corpus/silesia/reymont",
+        "https://sun.aei.polsl.pl/~sdeor/corpus/reymont.bz2",
     ),
     (
         "corpus/silesia/samba",
@@ -492,8 +500,8 @@ const SILESIA_DOWNLOADS: &[(&str, &str)] = &[
         "https://sun.aei.polsl.pl/~sdeor/corpus/x-ray.bz2",
     ),
     (
-        "corpus/silesia/ooffice",
-        "https://sun.aei.polsl.pl/~sdeor/corpus/ooffice.bz2",
+        "corpus/silesia/xml",
+        "https://sun.aei.polsl.pl/~sdeor/corpus/xml.bz2",
     ),
 ];
 
@@ -523,23 +531,19 @@ fn ensure_corpus() {
 }
 
 const ALL_FILES: &[&str] = &[
-    "corpus/compression_1k.txt",
-    "corpus/compression_34k.txt",
-    "corpus/compression_65k.txt",
-    "corpus/compression_66k_JSON.txt",
-    "corpus/dickens.txt",
-    "corpus/hdfs.json",
-    "corpus/reymont.pdf",
-    "corpus/xml_collection.xml",
-    "corpus/silesia/mr",
+    "corpus/silesia/dickens",
     "corpus/silesia/mozilla",
+    "corpus/silesia/mr",
     "corpus/silesia/nci",
+    "corpus/silesia/ooffice",
     "corpus/silesia/osdb",
+    "corpus/silesia/reymont",
     "corpus/silesia/samba",
     "corpus/silesia/sao",
     "corpus/silesia/webster",
     "corpus/silesia/x-ray",
-    "corpus/silesia/ooffice",
+    "corpus/silesia/xml",
+    "corpus/hdfs.json",
 ];
 
 fn xorshift32(state: &mut u32) -> u32 {

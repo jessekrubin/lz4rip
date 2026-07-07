@@ -19,7 +19,7 @@
 
 use std::{fmt, io};
 
-#[forbid(unsafe_code)]
+#[cfg_attr(feature = "paranoid", forbid(unsafe_code))]
 pub(crate) mod compress;
 #[forbid(unsafe_code)]
 pub(crate) mod decompress;

@@ -31,7 +31,7 @@ COLORS = {
 
 LABELS = {
     "C lz4":             "lz4 (C)",
-    "lz4rip":            "lz4rip (unsafe)",
+    "lz4rip":            "lz4rip (encapsulated unsafe)",
     "lz4rip paranoid":   "lz4rip paranoid (safe)",
     "lz4_flex unsafe":   "lz4_flex (unsafe)",
     "lz4_flex":          "lz4_flex (safe)",
@@ -46,7 +46,12 @@ DICT_COLORS = {
 
 DICT_LABELS = {
     "C lz4 (dict 2K)":   "lz4 (C)",
-    "lz4rip (dict 2K)":  "lz4rip (encapsulated unsafe, Rust)",
+    "lz4rip (dict 2K)":  "lz4rip (encapsulated unsafe)",
+}
+
+MAIN_INPUTS = {
+    "dickens", "mozilla", "mr", "nci", "ooffice", "osdb", "reymont",
+    "samba", "sao", "webster", "x-ray", "xml", "hdfs.json",
 }
 
 
@@ -327,11 +332,10 @@ def pipeline_chart(results, out_dir):
 
 
 COMPRESSIBLE = {
-    "dickens.txt", "hdfs.json", "nci", "xml_collection.xml", "webster",
-    "samba", "reymont.pdf", "mozilla", "compression_34k.txt",
-    "compression_65k.txt", "compression_66k_JSON.txt", "osdb",
+    "dickens", "hdfs.json", "mozilla", "nci", "ooffice", "osdb",
+    "reymont", "samba", "webster", "xml",
 }
-INCOMPRESSIBLE = {"sao", "x-ray", "mr", "compression_1k.txt"}
+INCOMPRESSIBLE = {"mr", "sao", "x-ray"}
 
 
 def summary_chart(results, out_dir):
@@ -1376,6 +1380,10 @@ def load_cache_dir(cache_dir):
     return results
 
 
+def filter_main_results(results):
+    return [r for r in results if r["input"] in MAIN_INPUTS]
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} [--sweep|--structured|--all] <output_dir>",
@@ -1439,9 +1447,9 @@ def main():
     out_dir.mkdir(exist_ok=True)
 
     # Main charts (pipeline + summary) from cache/<arch>/
-    results = load_cache_dir(base)
+    results = filter_main_results(load_cache_dir(base))
     if not results:
-        print(f"  no results in {base}", file=sys.stderr)
+        print(f"  no main corpus results in {base}", file=sys.stderr)
         sys.exit(1)
 
     svg = pipeline_chart(results, out_dir)
