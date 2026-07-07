@@ -6,6 +6,7 @@
 
 - Updated the JSR publish workflow to run `jsr publish` from GitHub Actions
   for provenance-backed CI publishing.
+- Bumped JSR package `@paddor/lz4rip` to 0.2.5.
 
 ## [0.10.2] - 2026-07-07
 
