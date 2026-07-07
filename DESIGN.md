@@ -121,16 +121,30 @@ C lz4 uses the same technique. lz4_flex does not.
 
 ## Unsafe boundary
 
-All compression and decompression logic is `#[forbid(unsafe_code)]`. Unsafe is isolated in three internal modules across two crates (15 blocks total):
+The `lz4rip` facade exposes safe compression and decompression APIs. Unsafe is
+isolated to 20 blocks in four modules across three crates:
 
-- `crates/encode/src/hashtable.rs` (2 blocks): `count_same_bytes_inbounds`, `get_batch_inbounds`. Each has `debug_assert` guards on bounds.
-- `crates/encode/src/verified_sink.rs` (2 blocks): `VerifiedSliceSink` performs unchecked writes after a one-time upfront capacity check at the compression entry point.
-- `crates/decode/src/primitives.rs` (11 blocks): unchecked memory reads (`read_byte_inbounds`, `read_u16_inbounds`), wild copies (`wild_copy_16`, `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`, `wild_match_copy_18`), `copy_within_nonoverlap`, `copy_within_overlapping`, `copy_from_src`. Each has `debug_assert` guards on bounds.
+- `crates/encode/src/hashtable.rs` (5 blocks): `count_same_bytes_inbounds`,
+  `get_at`, and architecture-width batch reads. Each has `debug_assert` guards
+  on bounds.
+- `crates/encode/src/verified_sink.rs` (2 blocks): `VerifiedSliceSink` performs
+  unchecked writes after a one-time upfront capacity check at the compression
+  entry point.
+- `src/frame/compress.rs` (2 blocks): `FrameEncoder` calls the doc-hidden
+  `lz4rip_encode::compress_into_sink_with_table` plumbing with its private
+  `HashTableU32`. The safety comments tie the table to the same linked frame
+  stream, external dictionary window, and stream offset.
+- `crates/decode/src/primitives.rs` (11 blocks): unchecked memory reads
+  (`read_byte_inbounds`, `read_u16_inbounds`), wild copies (`wild_copy_16`,
+  `wild_copy_literals`, `wild_copy_match_8`/`_16`/`_32`,
+  `wild_match_copy_18`), `copy_within_nonoverlap`,
+  `copy_within_overlapping`, `copy_from_src`. Each has `debug_assert` guards
+  on bounds.
 
-`HashTable` is crate-private. The facade crate's frame encoder uses a concrete
-`compress_into_sink_with_table` wrapper for `HashTableU32`, so external safe code
-cannot implement or mutate the match table in ways that would violate the
-unchecked read preconditions.
+`HashTable` is crate-private. `lz4rip-encode` exposes the concrete
+`compress_into_sink_with_table` wrapper for `HashTableU32` as doc-hidden
+cross-crate plumbing. It is `unsafe` in default builds because the caller-owned
+table must belong to the same logical compression stream as the input.
 
 `decompress_internal` is crate-private. The facade crate's frame decoder uses a
 concrete `decompress_into_sink_with_dict` wrapper for `SliceSink`, so external
@@ -141,7 +155,9 @@ output slice trusted by the unsafe fast path.
 
 The safe-region margin computation in `decompress_internal` determines how far from buffer ends the fast path can operate. Inside the margin, unchecked reads and wild copies in `primitives.rs` are provably in-bounds. Outside it, the slow path uses `.get()` with explicit error returns.
 
-The `paranoid` feature (see [SAFETY.md](SAFETY.md)) replaces all 15 blocks with safe twins and adds `#![forbid(unsafe_code)]` to every crate, for a build with no `unsafe` at all.
+The `paranoid` feature (see [SAFETY.md](SAFETY.md)) replaces all 20 blocks with
+safe twins and adds `#![forbid(unsafe_code)]` to every crate, for a build with no
+`unsafe` at all.
 
 ## Dictionary compression
 

@@ -1,16 +1,16 @@
 import {
-  assertEquals,
   assert,
+  assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  init,
   compress,
-  decompress,
   compressBound,
   Compressor,
+  decompress,
   Decompressor,
   DictTrainer,
+  init,
 } from "./mod.ts";
 
 Deno.test("init", async () => {
@@ -28,8 +28,10 @@ Deno.test("one-shot round-trip", () => {
 });
 
 Deno.test("compressBound", () => {
-  const bound = compressBound(1000);
-  assert(bound >= 1000);
+  const data = new TextEncoder().encode("compress bound payload".repeat(50));
+  const bound = compressBound(data.length);
+  assert(bound >= data.length);
+  assert(compress(data).length <= bound);
 });
 
 Deno.test("empty input", () => {
@@ -63,11 +65,16 @@ Deno.test("stateful compressor", () => {
 });
 
 Deno.test("stateful decompressor", () => {
-  const data = new TextEncoder().encode("hello world, hello lz4!".repeat(100));
-  const compressed = compress(data);
+  const data1 = new TextEncoder().encode("decompress test 1".repeat(50));
+  const data2 = new TextEncoder().encode("decompress test 2".repeat(50));
+
+  const c1 = compress(data1);
+  const c2 = compress(data2);
+
   const decompressor = new Decompressor();
-  const decompressed = decompressor.decompress(compressed, data.length);
-  assertEquals(decompressed, data);
+  assertEquals(decompressor.decompress(c1, data1.length), data1);
+  assertEquals(decompressor.decompress(c2, data2.length), data2);
+
   decompressor.free();
 });
 
@@ -98,6 +105,33 @@ Deno.test("dict round-trip", () => {
   decompressor.free();
 });
 
+Deno.test("dict stateful contexts reuse dictionary", () => {
+  const dict = new TextEncoder().encode(
+    '{"ts":"2026-04-27","level":"INFO","service":"api"}'.repeat(20),
+  );
+  const compressor = Compressor.withDict(dict);
+  const decompressor = Decompressor.withDict(dict);
+  const data1 = new TextEncoder().encode(
+    '{"ts":"2026-04-27","level":"INFO","service":"api","msg":"ok1"}'.repeat(
+      10,
+    ),
+  );
+  const data2 = new TextEncoder().encode(
+    '{"ts":"2026-04-27","level":"INFO","service":"api","msg":"ok2"}'.repeat(
+      10,
+    ),
+  );
+
+  const c1 = compressor.compress(data1);
+  const c2 = compressor.compress(data2);
+
+  assertEquals(decompressor.decompress(c1, data1.length), data1);
+  assertEquals(decompressor.decompress(c2, data2.length), data2);
+
+  compressor.free();
+  decompressor.free();
+});
+
 Deno.test("dict trainer", () => {
   const trainer = new DictTrainer(2048);
   for (let i = 0; i < 200; i++) {
@@ -118,6 +152,11 @@ Deno.test("dict trainer consumes on train", () => {
     trainer.addSample(new TextEncoder().encode(`sample ${i} data`.repeat(5)));
   }
   trainer.train();
+  assertThrows(
+    () => trainer.addSample(new TextEncoder().encode("late sample")),
+    Error,
+  );
+  assertThrows(() => trainer.sampleCount(), Error);
   assertThrows(() => trainer.train(), Error);
 });
 
@@ -132,11 +171,31 @@ Deno.test("decompress with too-small size throws", () => {
   );
 });
 
+Deno.test("decompress with too-large size throws", () => {
+  const data = new TextEncoder().encode("hello world".repeat(100));
+  const compressed = compress(data);
+  assertThrows(
+    () => decompress(compressed, data.length + 100),
+    Error,
+  );
+});
+
 Deno.test("decompress truncated data throws", () => {
   const data = new TextEncoder().encode("hello world".repeat(100));
   const compressed = compress(data);
   assertThrows(
     () => decompress(compressed.slice(0, compressed.length / 2), data.length),
+    Error,
+  );
+});
+
+Deno.test("decompress corrupted data throws", () => {
+  const data = new TextEncoder().encode("hello world".repeat(100));
+  const compressed = compress(data);
+  const corrupted = new Uint8Array(compressed);
+  corrupted[0] = 0xff;
+  assertThrows(
+    () => decompress(corrupted, data.length),
     Error,
   );
 });

@@ -73,7 +73,12 @@ GitHub releases. Configuration lives in `release-plz.toml`.
    `## [x.y.z]` section below `## [Unreleased]`. Never modify existing
    versioned sections.
 
-3. **Merge the release PR.** release-plz tags and publishes to
+3. **Bump the JSR package version.** Update `jsr/deno.json` and
+   `jsr/wasm/Cargo.toml`, then run `cd jsr && bash build.sh` and
+   `deno test --allow-read`. The `jsr-publish` workflow tests PRs, publishes on
+   push to `main`, and JSR rejects duplicate versions.
+
+4. **Merge the release PR.** release-plz tags and publishes to
    crates.io automatically.
 
 ## Fuzzing

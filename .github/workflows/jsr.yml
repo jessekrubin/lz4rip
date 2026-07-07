@@ -3,6 +3,13 @@ name: jsr-publish
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - ".github/workflows/jsr.yml"
+      - "Cargo.toml"
+      - "crates/**"
+      - "jsr/**"
+      - "src/**"
 
 jobs:
   publish:
@@ -20,4 +27,6 @@ jobs:
           deno-version: v2.x
       - run: cargo install wasm-pack
       - run: cd jsr && bash build.sh
-      - run: cd jsr && deno publish
+      - run: cd jsr && deno test --allow-read
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cd jsr && deno publish
