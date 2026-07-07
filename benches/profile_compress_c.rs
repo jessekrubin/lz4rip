@@ -1,15 +1,18 @@
 use std::hint::black_box;
 
-fn main() {
-    let which = std::env::args().nth(1).unwrap_or_else(|| "json66k".into());
-    let data: &[u8] = match which.as_str() {
-        "json66k" => include_bytes!("../corpus/compression_66k_JSON.txt"),
-        "text34k" => include_bytes!("../corpus/compression_34k.txt"),
-        "hdfs" => include_bytes!("../corpus/hdfs.json"),
-        "xml" => include_bytes!("../corpus/xml_collection.xml"),
-        "dickens" => include_bytes!("../corpus/dickens.txt"),
+fn read_input(which: &str) -> Vec<u8> {
+    let path = match which {
+        "hdfs" | "json" => "corpus/hdfs.json",
+        "xml" => "corpus/silesia/xml",
+        "dickens" => "corpus/silesia/dickens",
         other => panic!("unknown input: {other}"),
     };
+    std::fs::read(path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"))
+}
+
+fn main() {
+    let which = std::env::args().nth(1).unwrap_or_else(|| "hdfs".into());
+    let data = read_input(&which);
     let iters: usize = std::env::args()
         .nth(2)
         .and_then(|s| s.parse().ok())
@@ -18,7 +21,7 @@ fn main() {
     let mut output = vec![0u8; max_out];
 
     for _ in 0..iters {
-        let n = lzzzz::lz4::compress(data, &mut output, lzzzz::lz4::ACC_LEVEL_DEFAULT).unwrap();
+        let n = lzzzz::lz4::compress(&data, &mut output, lzzzz::lz4::ACC_LEVEL_DEFAULT).unwrap();
         black_box(n);
     }
 }

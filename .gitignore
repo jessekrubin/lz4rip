@@ -8,13 +8,7 @@ Session.vim
 /benchmarks/bench_files
 /info/
 /corpus/*
-!/corpus/compression_1k.txt
-!/corpus/compression_34k.txt
-!/corpus/compression_65k.txt
-!/corpus/compression_66k_JSON.txt
 !/corpus/hdfs.json
-!/corpus/reymont.pdf
-!/corpus/xml_collection.xml
 /sweep_bins/
 /sweep_results.json
 *.sweep_bak

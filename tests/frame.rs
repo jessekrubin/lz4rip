@@ -14,24 +14,24 @@ const LINKED_DICT_REPEAT_START: usize = LINKED_DICT_FRAME_BLOCK_BYTES / 2;
 #[test]
 fn concatenated() {
     let mut enc = lz4rip::frame::FrameEncoder::new(Vec::new());
-    enc.write_all(COMPRESSION1K).unwrap();
+    enc.write_all(compression1k()).unwrap();
     enc.try_finish().unwrap();
-    enc.write_all(COMPRESSION34K).unwrap();
+    enc.write_all(compression34k()).unwrap();
     let compressed = enc.finish().unwrap();
 
     let mut dec = lz4rip::frame::FrameDecoder::new(&*compressed);
     let mut uncompressed = Vec::new();
     dec.read_to_end(&mut uncompressed).unwrap();
-    assert_eq!(&*uncompressed, COMPRESSION1K);
+    assert_eq!(&*uncompressed, compression1k());
     uncompressed.clear();
     dec.read_to_end(&mut uncompressed).unwrap();
-    assert_eq!(&*uncompressed, COMPRESSION34K);
+    assert_eq!(&*uncompressed, compression34k());
 }
 
 #[test]
 #[cfg_attr(miri, ignore)]
 fn checksums() {
-    for &input in &[COMPRESSION34K, COMPRESSION66JSON] {
+    for &input in &[compression34k(), compression66json()] {
         // Block checksum
         let mut frame_info = lz4rip::frame::FrameInfo::new();
         frame_info.block_checksums = true;
@@ -88,11 +88,11 @@ fn block_size() {
 #[test]
 fn content_size() {
     let mut frame_info = lz4rip::frame::FrameInfo::new();
-    frame_info.content_size = Some(COMPRESSION1K.len() as u64);
-    let mut compressed = lz4rip_frame_compress_with(frame_info, COMPRESSION1K).unwrap();
+    frame_info.content_size = Some(compression1k().len() as u64);
+    let mut compressed = lz4rip_frame_compress_with(frame_info, compression1k()).unwrap();
 
     let uncompressed = lz4rip_frame_decompress(&compressed).unwrap();
-    assert_eq!(uncompressed, COMPRESSION1K);
+    assert_eq!(uncompressed, compression1k());
 
     // Corrupt the content size in the header.
     {
@@ -192,7 +192,7 @@ fn dict_with_linked_blocks_round_trip() {
 #[test]
 fn linked_blocks_improve_multi_block_ratio_with_dictionary() {
     let dict = b"prefix=orders region=west status=complete payload=".repeat(32);
-    let first_block = &COMPRESSION66JSON[..LINKED_DICT_FRAME_BLOCK_BYTES];
+    let first_block = &compression66json()[..LINKED_DICT_FRAME_BLOCK_BYTES];
     let mut msg = first_block.to_vec();
     msg.extend_from_slice(&first_block[LINKED_DICT_REPEAT_START..]);
     msg.extend_from_slice(&first_block[LINKED_DICT_REPEAT_START..]);
@@ -270,7 +270,7 @@ fn dict_required_when_frame_declares_one() {
 #[test]
 fn truncated_standard_frame_is_error() {
     let frame_info = lz4rip::frame::FrameInfo::new();
-    let compressed = lz4rip_frame_compress_with(frame_info, COMPRESSION34K).unwrap();
+    let compressed = lz4rip_frame_compress_with(frame_info, compression34k()).unwrap();
     let truncated = &compressed[..compressed.len() - 4];
     let err = lz4rip_frame_decompress(truncated).unwrap_err();
     assert!(

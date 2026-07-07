@@ -4,27 +4,60 @@
 use lz4rip::frame::BlockMode;
 use lz4rip::{block::decompress, compress as compress_block};
 
-pub const COMPRESSION1K: &[u8] = include_bytes!("../../corpus/compression_1k.txt");
-pub const COMPRESSION34K: &[u8] = include_bytes!("../../corpus/compression_34k.txt");
-pub const COMPRESSION65: &[u8] = include_bytes!("../../corpus/compression_65k.txt");
-pub const COMPRESSION66JSON: &[u8] = include_bytes!("../../corpus/compression_66k_JSON.txt");
-
-pub static DICKENS: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
-    let path = std::path::Path::new("corpus/dickens.txt");
-    if let Ok(data) = std::fs::read(path) {
-        return data;
+fn text_payload(target_bytes: usize) -> Vec<u8> {
+    const SENTENCE: &[u8] =
+        b"the quick brown fox jumps over the lazy dog; lz4 block test payload\n";
+    let mut out = Vec::with_capacity(target_bytes);
+    while out.len() < target_bytes {
+        out.extend_from_slice(SENTENCE);
     }
-    let url = "https://sun.aei.polsl.pl/~sdeor/corpus/dickens.bz2";
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("curl -fSL '{url}' | bzip2 -d"))
-        .output()
-        .expect("failed to download dickens");
-    assert!(output.status.success(), "failed to download dickens.bz2");
-    std::fs::create_dir_all(path.parent().unwrap()).ok();
-    std::fs::write(path, &output.stdout).ok();
-    output.stdout
-});
+    out.truncate(target_bytes);
+    out
+}
+
+fn json_payload(target_bytes: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(target_bytes);
+    let mut i = 0u64;
+    while out.len() < target_bytes {
+        let line = format!(
+            r#"{{"ts":1700000000,"level":"INFO","service":"ingest","event":{},"message":"repeatable structured payload for lz4 dictionary tests"}}"#,
+            i
+        );
+        out.extend_from_slice(line.as_bytes());
+        out.push(b'\n');
+        i += 1;
+    }
+    out.truncate(target_bytes);
+    out
+}
+
+pub static COMPRESSION1K: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| text_payload(725));
+pub static COMPRESSION34K: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| text_payload(34_308));
+pub static COMPRESSION65: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| text_payload(64_723));
+pub static COMPRESSION66JSON: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| json_payload(66_675));
+
+pub fn compression1k() -> &'static [u8] {
+    &COMPRESSION1K
+}
+
+pub fn compression34k() -> &'static [u8] {
+    &COMPRESSION34K
+}
+
+pub fn compression65() -> &'static [u8] {
+    &COMPRESSION65
+}
+
+pub fn compression66json() -> &'static [u8] {
+    &COMPRESSION66JSON
+}
+
+pub static DICKENS: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| text_payload(10_192_446));
 
 #[cfg(feature = "frame")]
 pub fn lz4rip_frame_compress_with(

@@ -190,24 +190,24 @@ fn test_dickens() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn test_json_66k() {
-    test_roundtrip(COMPRESSION66JSON);
+    test_roundtrip(compression66json());
 }
 
 #[test]
 #[cfg_attr(miri, ignore)]
 fn test_text_65k() {
-    test_roundtrip(COMPRESSION65);
+    test_roundtrip(compression65());
 }
 
 #[test]
 #[cfg_attr(miri, ignore)]
 fn test_text_34k() {
-    test_roundtrip(COMPRESSION34K);
+    test_roundtrip(compression34k());
 }
 
 #[test]
 fn test_text_1k() {
-    test_roundtrip(COMPRESSION1K);
+    test_roundtrip(compression1k());
 }
 
 use proptest::{prelude::*, test_runner::FileFailurePersistence};

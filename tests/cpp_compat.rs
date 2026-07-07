@@ -73,22 +73,22 @@ fn test_frame_compat(bytes: &[u8]) {
 
 #[test]
 fn block_compat_1k() {
-    test_block_compat(COMPRESSION1K);
+    test_block_compat(compression1k());
 }
 
 #[test]
 fn block_compat_34k() {
-    test_block_compat(COMPRESSION34K);
+    test_block_compat(compression34k());
 }
 
 #[test]
 fn block_compat_65k() {
-    test_block_compat(COMPRESSION65);
+    test_block_compat(compression65());
 }
 
 #[test]
 fn block_compat_66k_json() {
-    test_block_compat(COMPRESSION66JSON);
+    test_block_compat(compression66json());
 }
 
 #[test]
@@ -104,25 +104,25 @@ fn block_compat_empty() {
 #[cfg(feature = "frame")]
 #[test]
 fn frame_compat_1k() {
-    test_frame_compat(COMPRESSION1K);
+    test_frame_compat(compression1k());
 }
 
 #[cfg(feature = "frame")]
 #[test]
 fn frame_compat_34k() {
-    test_frame_compat(COMPRESSION34K);
+    test_frame_compat(compression34k());
 }
 
 #[cfg(feature = "frame")]
 #[test]
 fn frame_compat_65k() {
-    test_frame_compat(COMPRESSION65);
+    test_frame_compat(compression65());
 }
 
 #[cfg(feature = "frame")]
 #[test]
 fn frame_compat_66k_json() {
-    test_frame_compat(COMPRESSION66JSON);
+    test_frame_compat(compression66json());
 }
 
 #[cfg(feature = "frame")]
@@ -196,9 +196,9 @@ fn compare_compression() {
         }
     }
 
-    print_compression_ratio(COMPRESSION1K, "1k");
-    print_compression_ratio(COMPRESSION34K, "34k");
-    print_compression_ratio(COMPRESSION66JSON, "66k JSON");
+    print_compression_ratio(compression1k(), "1k");
+    print_compression_ratio(compression34k(), "34k");
+    print_compression_ratio(compression66json(), "66k JSON");
     print_compression_ratio(&DICKENS, "dickens");
 }
 
@@ -220,12 +220,12 @@ fn test_comp_lz4_linked() {
 
     print_ratio(
         "Ratio 1k C",
-        COMPRESSION1K.len(),
-        get_compressed_size(COMPRESSION1K),
+        compression1k().len(),
+        get_compressed_size(compression1k()),
     );
     print_ratio(
         "Ratio 34k C",
-        COMPRESSION34K.len(),
-        get_compressed_size(COMPRESSION34K),
+        compression34k().len(),
+        get_compressed_size(compression34k()),
     );
 }

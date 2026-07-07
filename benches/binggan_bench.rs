@@ -6,27 +6,25 @@ use binggan::*;
 
 extern crate lz4_flex_upstream;
 
-const COMPRESSION1K: &[u8] = include_bytes!("../corpus/compression_1k.txt");
-const COMPRESSION34K: &[u8] = include_bytes!("../corpus/compression_34k.txt");
-const COMPRESSION65K: &[u8] = include_bytes!("../corpus/compression_65k.txt");
-const COMPRESSION66K: &[u8] = include_bytes!("../corpus/compression_66k_JSON.txt");
-const COMPRESSION10MB: &[u8] = include_bytes!("../corpus/dickens.txt");
-const OSDB: &[u8] = include_bytes!("../corpus/silesia/osdb");
-const WEBSTER: &[u8] = include_bytes!("../corpus/silesia/webster");
-const MR: &[u8] = include_bytes!("../corpus/silesia/mr");
+const HDFS: &[u8] = include_bytes!("../corpus/hdfs.json");
 
 #[global_allocator]
 pub static GLOBAL: PeakMemAlloc<jemallocator::Jemalloc> = PeakMemAlloc::new(jemallocator::Jemalloc);
 
-const ALL: &[&[u8]] = &[
-    COMPRESSION1K as &[u8],
-    COMPRESSION34K as &[u8],
-    COMPRESSION65K as &[u8],
-    COMPRESSION66K as &[u8],
-    COMPRESSION10MB as &[u8],
-    OSDB as &[u8],
-    WEBSTER as &[u8],
-    MR as &[u8],
+const MAIN_CORPUS: &[&str] = &[
+    "silesia/dickens",
+    "silesia/mozilla",
+    "silesia/mr",
+    "silesia/nci",
+    "silesia/ooffice",
+    "silesia/osdb",
+    "silesia/reymont",
+    "silesia/samba",
+    "silesia/sao",
+    "silesia/webster",
+    "silesia/x-ray",
+    "silesia/xml",
+    "hdfs.json",
 ];
 
 #[cfg(feature = "frame")]
@@ -48,12 +46,9 @@ fn main() {
         frame_dict_compress(InputGroup::new_with_inputs(get_frame_dict_datasets()));
     }
 
-    let named_data = ALL
-        .iter()
-        .map(|data| (data.len().to_string(), data.to_vec()))
-        .collect();
+    let named_data = load_main_corpus();
     block_compress(InputGroup::new_with_inputs(named_data));
-    block_decompress();
+    block_decompress(load_main_corpus());
 }
 
 #[cfg(feature = "frame")]
@@ -195,16 +190,15 @@ fn block_compress(mut runner: InputGroup<Vec<u8>, usize>) {
     runner.run();
 }
 
-fn block_decompress() {
+fn block_decompress(data_sets: Vec<(String, Vec<u8>)>) {
     let mut runner = BenchRunner::with_name("block_decompress");
     // Set the peak mem allocator. This will enable peak memory reporting.
     runner.add_plugin(PeakMemAllocPlugin::new(&GLOBAL));
     runner.add_plugin(CacheTrasher::default());
-    for data_uncomp in ALL {
-        let comp_lz4 = lz4_cpp_block_compress(data_uncomp).unwrap();
+    for (name, data_uncomp) in data_sets {
+        let comp_lz4 = lz4_cpp_block_compress(&data_uncomp).unwrap();
         let bundle = (comp_lz4, data_uncomp.len());
 
-        let name = data_uncomp.len().to_string();
         let mut group = runner.new_group();
         group.set_name(name.clone());
         group.set_input_size(data_uncomp.len());
@@ -228,11 +222,10 @@ fn block_decompress() {
 
 fn get_frame_datasets() -> Vec<(String, Vec<u8>)> {
     let paths = [
-        "compression_1k.txt",
-        "dickens.txt",
+        "silesia/dickens",
         "hdfs.json",
-        "reymont.pdf",
-        "xml_collection.xml",
+        "silesia/reymont",
+        "silesia/xml",
     ];
     paths
         .iter()
@@ -249,12 +242,30 @@ fn get_frame_datasets() -> Vec<(String, Vec<u8>)> {
 #[cfg(feature = "frame")]
 fn get_frame_dict_datasets() -> Vec<(String, FrameDictInput)> {
     let dict = b"prefix=orders region=west status=complete payload=".repeat(32);
-    let first_block = &COMPRESSION66K[..FRAME_DICT_BLOCK_BYTES];
+    let first_block = &HDFS[..FRAME_DICT_BLOCK_BYTES];
     let mut data = first_block.to_vec();
     data.extend_from_slice(&first_block[FRAME_DICT_REPEAT_START..]);
     data.extend_from_slice(&first_block[FRAME_DICT_REPEAT_START..]);
 
     vec![("linked-dict-repeat".to_string(), (data, dict))]
+}
+
+fn load_main_corpus() -> Vec<(String, Vec<u8>)> {
+    MAIN_CORPUS
+        .iter()
+        .filter_map(|path| {
+            let path_buf = std::path::Path::new("corpus").join(path);
+            let data = match std::fs::read(&path_buf) {
+                Ok(data) => data,
+                Err(e) => {
+                    eprintln!("skipping {}: {e}", path_buf.display());
+                    return None;
+                }
+            };
+            let name = path.rsplit('/').next().unwrap().to_string();
+            Some((name, data))
+        })
+        .collect()
 }
 
 fn compress_snap(input: &[u8]) -> Vec<u8> {

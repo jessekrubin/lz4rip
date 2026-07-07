@@ -6,16 +6,16 @@ use more_asserts::assert_lt;
 
 #[test]
 fn test_minimum_compression_ratio_block() {
-    let compressed = compress_block(COMPRESSION34K);
-    let ratio = compressed.len() as f64 / COMPRESSION34K.len() as f64;
+    let compressed = compress_block(compression34k());
+    let ratio = compressed.len() as f64 / compression34k().len() as f64;
     assert_lt!(ratio, 0.59);
 
-    let compressed = compress_block(COMPRESSION65);
-    let ratio = compressed.len() as f64 / COMPRESSION65.len() as f64;
+    let compressed = compress_block(compression65());
+    let ratio = compressed.len() as f64 / compression65().len() as f64;
     assert_lt!(ratio, 0.59);
 
-    let compressed = compress_block(COMPRESSION66JSON);
-    let ratio = compressed.len() as f64 / COMPRESSION66JSON.len() as f64;
+    let compressed = compress_block(compression66json());
+    let ratio = compressed.len() as f64 / compression66json().len() as f64;
     assert_lt!(ratio, 0.240);
 }
 
@@ -29,13 +29,13 @@ fn test_minimum_compression_ratio_frame() {
         compressed.len() as f64 / input.len() as f64
     };
 
-    let ratio = get_ratio(COMPRESSION34K);
+    let ratio = get_ratio(compression34k());
     assert_lt!(ratio, 0.645);
 
-    let ratio = get_ratio(COMPRESSION65);
+    let ratio = get_ratio(compression65());
     assert_lt!(ratio, 0.645);
 
-    let ratio = get_ratio(COMPRESSION66JSON);
+    let ratio = get_ratio(compression66json());
     assert_lt!(ratio, 0.245);
 }
 
@@ -53,12 +53,12 @@ fn print_ratio(text: &str, val1: usize, val2: usize) {
 fn test_comp_flex() {
     print_ratio(
         "Ratio 1k flex",
-        COMPRESSION1K.len(),
-        compress_block(COMPRESSION1K).len(),
+        compression1k().len(),
+        compress_block(compression1k()).len(),
     );
     print_ratio(
         "Ratio 34k flex",
-        COMPRESSION34K.len(),
-        compress_block(COMPRESSION34K).len(),
+        compression34k().len(),
+        compress_block(compression34k()).len(),
     );
 }
