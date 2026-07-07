@@ -2,15 +2,16 @@
 
 ## Unsafe boundary
 
-All compression and decompression logic is `#[forbid(unsafe_code)]`. The remaining
-unsafe (15 blocks in 3 internal modules across 2 crates) performs unchecked memory
-copies whose bounds are proven by safe-region margins computed in the algorithm code.
-No `unsafe` is exposed in the public API. The internal hash-table trait and
-generic decompression entry point are not exported, so downstream code cannot
-construct invalid match candidates for the unchecked encoder reads or supply a
-custom `Sink` whose capacity lies to the decoder fast path. See
-[DESIGN.md](DESIGN.md) for details on the unsafe boundary and safe-region margin
-computation.
+The `lz4rip` facade exposes safe compression and decompression APIs. The default
+build isolates unsafe code to 20 blocks in 4 modules across 3 crates. Most blocks
+perform unchecked reads or writes whose bounds are proven by safe-region margins
+computed in the algorithm code.
+
+The internal hash-table trait and generic decompression entry point are not
+exported, so downstream safe code cannot construct invalid match candidates for
+unchecked encoder reads or supply a custom `Sink` whose capacity lies to the
+decoder fast path. See [DESIGN.md](DESIGN.md) for the unsafe-site inventory,
+frame-compression table invariants, and safe-region margin computation.
 
 ## Paranoid build (zero unsafe)
 

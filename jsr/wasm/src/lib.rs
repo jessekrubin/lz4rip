@@ -12,7 +12,9 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
 
 #[wasm_bindgen]
 pub fn decompress(input: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, JsError> {
-    lz4rip::decompress(input, uncompressed_size).map_err(|e| JsError::new(&format!("{e}")))
+    let output =
+        lz4rip::decompress(input, uncompressed_size).map_err(|e| JsError::new(&format!("{e}")))?;
+    validate_exact_size(output, uncompressed_size)
 }
 
 enum CompressorInner {
@@ -75,9 +77,11 @@ impl Decompressor {
         input: &[u8],
         uncompressed_size: usize,
     ) -> Result<Vec<u8>, JsError> {
-        self.inner
+        let output = self
+            .inner
             .decompress(input, uncompressed_size)
-            .map_err(|e| JsError::new(&format!("{e}")))
+            .map_err(|e| JsError::new(&format!("{e}")))?;
+        validate_exact_size(output, uncompressed_size)
     }
 }
 
@@ -119,5 +123,16 @@ impl DictTrainer {
             .take()
             .ok_or_else(|| JsError::new("DictTrainer already consumed by train()"))?;
         Ok(trainer.train())
+    }
+}
+
+fn validate_exact_size(output: Vec<u8>, uncompressed_size: usize) -> Result<Vec<u8>, JsError> {
+    if output.len() == uncompressed_size {
+        Ok(output)
+    } else {
+        Err(JsError::new(&format!(
+            "decompressed size mismatch: expected {uncompressed_size}, got {}",
+            output.len()
+        )))
     }
 }

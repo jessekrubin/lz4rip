@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-07
+
+### Changed
+
+- `lz4rip-encode` marks the doc-hidden `compress_into_sink_with_table`
+  frame-encoder plumbing as `unsafe` in default builds and documents the
+  caller-owned `HashTableU32` stream invariants. The `paranoid` build keeps
+  the same plumbing safe because it uses bounds-checked memory accesses.
+- The main benchmark corpus now uses the standard Silesia corpus plus
+  `hdfs.json`. Only `hdfs.json` remains tracked under `corpus/`; small test
+  fixtures are generated in the test helper.
+- Refreshed x86_64 benchmark charts from the Silesia-plus-HDFS cache and
+  updated checked-in benchmark labels.
+- Bumped the JSR/WASM package metadata to 0.2.4 for the `jsr-publish`
+  workflow.
+- Expanded JSR/WASM tests for reusable decompression, dictionary reuse,
+  consumed trainers, corrupt input, and exact output-size validation. The
+  `jsr-publish` workflow now runs Deno tests before publishing.
+
 ## [0.10.1] - 2026-07-05
 
 ### Added

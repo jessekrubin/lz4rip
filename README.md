@@ -1,6 +1,6 @@
 # lz4rip
 
-Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with all algorithm logic under `#[forbid(unsafe_code)]`.
+Fast, memory-safe LZ4 compression for Rust. On par with C lz4 throughput, with safe facade APIs over a small documented unsafe boundary.
 
 Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 
