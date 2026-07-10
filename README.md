@@ -17,6 +17,11 @@ See [DESIGN.md](DESIGN.md) for how it all works.
 
 ## Performance
 
+lz4rip is tuned for transfer speed, not compression ratio. It skips over
+non-matching data more aggressively than C lz4 and lz4_flex, which costs about
+9% ratio on compressible data (2.18x vs 2.39x) but makes compression faster,
+especially on incompressible input where the skip acceleration dominates.
+
 ![LZ4 Pipeline Summary](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/x86_64/summary.svg)
 
 <details>
@@ -42,7 +47,7 @@ See [DESIGN.md](DESIGN.md) for how it all works.
 ![LZ4 Dict 2K](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/aarch64/dict2k.svg)
 </details>
 
-**WebAssembly.** Available as [`@paddor/lz4rip`](https://jsr.io/@paddor/lz4rip) on JSR. Block compress/decompress with optional dictionary support.
+**WebAssembly.** Available as [`@paddor/lz4rip`](https://jsr.io/@paddor/lz4rip) on JSR. Block compress and decompress, dictionary compression, and dictionary training.
 
 ## Block format
 
@@ -239,9 +244,10 @@ let compressed = encoder.finish().unwrap();
 
 [SAFETY.md](SAFETY.md) documents the unsafe boundary and catalogs C lz4 memory safety bugs that Rust prevents by construction.
 
-All codec paths are fuzz-tested (6 targets, ~74M executions across block and
-frame round-trip, corruption resistance, cross-validation against C lz4, and
-output-leak detection) and verified under Miri on both x86_64 and aarch64.
+All codec paths are fuzz-tested (12 targets covering block and frame round-trip,
+dictionary round-trip, corruption resistance, cross-validation against C lz4,
+output-leak detection, bitflips, crafted tokens, and tiny hash tables) and
+verified under Miri on both x86_64 and aarch64.
 
 ## Development
 
