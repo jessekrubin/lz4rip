@@ -12,6 +12,7 @@ Originally derived from [lz4_flex](https://github.com/PSeitz/lz4_flex).
 - **Built-in dictionary training.** `DictTrainer` learns a dictionary from your data. No external tools needed.
 - **Hot-loop friendly.** Epoch-based table reuse skips clearing between calls for small inputs.
 - **`no_std` and no-alloc ready.** Block format works without `std` or even `alloc`. Hash tables live on the stack when `alloc` is off. Frame format requires `std`.
+- **WebAssembly.** Available as [`@paddor/lz4rip`](https://jsr.io/@paddor/lz4rip) on JSR. Block compress and decompress, dictionaries.
 
 See [DESIGN.md](DESIGN.md) for how it all works.
 
@@ -46,8 +47,6 @@ especially on incompressible input where the skip acceleration dominates.
 ![LZ4 Pipeline Detail](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/aarch64/pipeline.svg)
 ![LZ4 Dict 2K](https://raw.githubusercontent.com/paddor/lz4rip/main/doc/charts/aarch64/dict2k.svg)
 </details>
-
-**WebAssembly.** Available as [`@paddor/lz4rip`](https://jsr.io/@paddor/lz4rip) on JSR. Block compress and decompress, dictionary compression, and dictionary training.
 
 ## Block format
 
