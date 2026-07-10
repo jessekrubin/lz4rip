@@ -142,13 +142,9 @@ fn dict_with_frame_info_round_trip_and_preserves_settings() {
         .content_checksum(true)
         .content_size(Some(msg.len() as u64));
 
-    let mut enc = lz4rip::frame::FrameEncoder::with_dictionary(
-        Vec::new(),
-        &dict,
-        dict_id,
-        Some(frame_info),
-    )
-    .unwrap();
+    let mut enc =
+        lz4rip::frame::FrameEncoder::with_dictionary(Vec::new(), &dict, dict_id, Some(frame_info))
+            .unwrap();
     assert_eq!(enc.frame_info().block_mode, frame_info.block_mode);
     assert_eq!(enc.frame_info().block_size, frame_info.block_size);
     assert_eq!(enc.frame_info().block_checksums, frame_info.block_checksums);
