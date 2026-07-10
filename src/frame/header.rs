@@ -122,7 +122,7 @@ pub enum BlockMode {
 // |:----------:| ------ |:----------------:|
 // |  4 bytes   |        |   0 - 4 bytes    |
 //
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// The metadata for de/compressing with lz4 frame format.
 pub struct FrameInfo {
     /// If set, includes the total uncompressed size of data in the frame.
