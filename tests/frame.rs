@@ -146,7 +146,7 @@ fn dict_with_frame_info_round_trip_and_preserves_settings() {
         Vec::new(),
         &dict,
         dict_id,
-        Some(frame_info.clone()),
+        Some(frame_info),
     )
     .unwrap();
     assert_eq!(enc.frame_info().block_mode, frame_info.block_mode);
