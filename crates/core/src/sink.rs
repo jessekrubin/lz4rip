@@ -1,6 +1,13 @@
 use crate::fastcpy::slice_copy;
 
 /// Trait for output buffers used during compression and decompression.
+///
+/// # Invariant
+///
+/// `pos() <= capacity()` must hold at all times. `output_mut_with_pos`
+/// exposes `&mut usize` for the position; callers must not set it past the
+/// buffer length. The decompressor asserts this at entry but cannot guard
+/// against mid-call violations from concurrent access.
 pub trait Sink {
     /// Pushes a byte to the end of the Sink.
     fn push(&mut self, byte: u8);

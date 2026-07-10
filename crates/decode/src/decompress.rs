@@ -79,6 +79,12 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     ext_dict: &[u8],
 ) -> Result<usize, DecompressError> {
     let mut input_pos = 0;
+    assert!(
+        output.pos() <= output.capacity(),
+        "sink position ({}) exceeds capacity ({})",
+        output.pos(),
+        output.capacity(),
+    );
     let initial_output_pos = output.pos();
 
     let (lit_margin, match_margin) = (16, 18);
@@ -574,5 +580,16 @@ mod test {
             decompress(&[0x0E, 0, 0, 0x70, 0, 0, 0, 0, 0, 0, 0], 256),
             Err(DecompressError::OffsetZero)
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "sink position")]
+    fn corrupted_sink_pos_panics() {
+        let input = [0x10, b'A'];
+        let mut output = [0u8; 8];
+        let mut sink = SliceSink::new(&mut output, 0);
+        let (_, pos) = sink.output_mut_with_pos();
+        *pos = 9;
+        let _ = decompress_into_sink_with_dict::<false>(&input, &mut sink, b"");
     }
 }
