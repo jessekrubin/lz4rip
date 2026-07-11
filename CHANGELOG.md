@@ -2,11 +2,18 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-11
+
+### Added
+
+- `Copy` derive on `FrameInfo`.
+
 ### Changed
 
-- Add `Copy` to FrameInfo
-- Updated the JSR publish workflow to run `jsr publish` from GitHub Actions
-  for provenance-backed CI publishing.
+- The decompressor validates that the sink position does not exceed
+  capacity at entry, catching corrupted state before the hot loop.
+- Updated the JSR publish workflow to run `jsr publish` from GitHub
+  Actions for provenance-backed CI publishing.
 - Bumped JSR package `@paddor/lz4rip` to 0.2.5.
 
 ## [0.10.2] - 2026-07-07
