@@ -1,14 +1,15 @@
 //! Low-level memory primitives for decompression.
 //!
-//! Each operation has two implementations selected at compile time: the default
-//! uses unchecked indexing and unaligned reads for speed; the `paranoid` feature
-//! swaps in a bounds-checked safe twin with identical behavior. Callers in
-//! `decompress.rs` are unaware of which is active.
+//! Each operation has two implementations selected at compile time. The default
+//! build uses unchecked indexing and unaligned reads for speed; these functions
+//! are `unsafe fn` because callers must uphold bounds preconditions documented
+//! in each function's `debug_assert!` guards. The `paranoid` feature provides
+//! safe `fn` twins with no preconditions (violations panic via bounds checks).
 
 /// Read 1 byte without bounds checking.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn read_byte_inbounds(input: &[u8], n: usize) -> u8 {
+pub(crate) unsafe fn read_byte_inbounds(input: &[u8], n: usize) -> u8 {
     debug_assert!(n < input.len());
     unsafe { *input.get_unchecked(n) }
 }
@@ -23,7 +24,7 @@ pub(crate) fn read_byte_inbounds(input: &[u8], n: usize) -> u8 {
 /// Read 2 bytes as little-endian u16 without bounds checking.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn read_u16_inbounds(input: &[u8], n: usize) -> u16 {
+pub(crate) unsafe fn read_u16_inbounds(input: &[u8], n: usize) -> u16 {
     debug_assert!(n + 2 <= input.len());
     unsafe {
         (input.as_ptr().add(n) as *const u16)
@@ -42,7 +43,7 @@ pub(crate) fn read_u16_inbounds(input: &[u8], n: usize) -> u16 {
 /// Copy 16 bytes from `src[src_pos..]` to `dst[dst_pos..]`, advancing `dst_pos` by `advance`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_copy_16(
+pub(crate) unsafe fn wild_copy_16(
     src: &[u8],
     src_pos: usize,
     dst: &mut [u8],
@@ -80,7 +81,7 @@ pub(crate) fn wild_copy_16(
 /// Copy match within `buf`: three sequential 8-byte copies from `src_pos` to `*dst_pos`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_match_copy_18(
+pub(crate) unsafe fn wild_match_copy_18(
     buf: &mut [u8],
     src_pos: usize,
     dst_pos: &mut usize,
@@ -130,7 +131,7 @@ pub(crate) fn wild_match_copy_18(
 /// Unchecked copy from `src[src_pos..src_pos+len]` to `dst[*dst_pos..*dst_pos+len]`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn copy_from_src(
+pub(crate) unsafe fn copy_from_src(
     src: &[u8],
     src_pos: usize,
     dst: &mut [u8],
@@ -168,7 +169,7 @@ pub(crate) fn copy_from_src(
 /// until `match_len` is reached. O(log(match_len/offset)) memcpy calls.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn copy_within_overlapping(
+pub(crate) unsafe fn copy_within_overlapping(
     buf: &mut [u8],
     start: usize,
     dst_pos: &mut usize,
@@ -230,7 +231,7 @@ pub(crate) fn copy_within_overlapping(
 /// Inline literal wildcopy in 32-byte chunks.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_copy_literals(
+pub(crate) unsafe fn wild_copy_literals(
     src: &[u8],
     src_pos: usize,
     dst: &mut [u8],
@@ -276,7 +277,12 @@ pub(crate) fn wild_copy_literals(
 /// Inline match wildcopy for `offset >= 8`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_copy_match_8(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+pub(crate) unsafe fn wild_copy_match_8(
+    buf: &mut [u8],
+    src: usize,
+    dst_pos: &mut usize,
+    len: usize,
+) {
     debug_assert!(*dst_pos >= src + 8);
     debug_assert!(*dst_pos + len + 8 <= buf.len());
     let dst = *dst_pos;
@@ -306,7 +312,12 @@ pub(crate) fn wild_copy_match_8(buf: &mut [u8], src: usize, dst_pos: &mut usize,
 /// Inline match wildcopy for `offset >= 16`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_copy_match_16(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+pub(crate) unsafe fn wild_copy_match_16(
+    buf: &mut [u8],
+    src: usize,
+    dst_pos: &mut usize,
+    len: usize,
+) {
     debug_assert!(*dst_pos >= src + 16);
     debug_assert!(*dst_pos + len + 16 <= buf.len());
     let dst = *dst_pos;
@@ -336,7 +347,12 @@ pub(crate) fn wild_copy_match_16(buf: &mut [u8], src: usize, dst_pos: &mut usize
 /// Inline match wildcopy for `offset >= 32`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn wild_copy_match_32(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+pub(crate) unsafe fn wild_copy_match_32(
+    buf: &mut [u8],
+    src: usize,
+    dst_pos: &mut usize,
+    len: usize,
+) {
     debug_assert!(*dst_pos >= src + 32);
     debug_assert!(*dst_pos + len + 32 <= buf.len());
     let dst = *dst_pos;
@@ -389,7 +405,12 @@ fn match_copy(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
 /// Unchecked non-overlapping copy within `buf`.
 #[cfg(not(feature = "paranoid"))]
 #[inline]
-pub(crate) fn copy_within_nonoverlap(buf: &mut [u8], src: usize, dst_pos: &mut usize, len: usize) {
+pub(crate) unsafe fn copy_within_nonoverlap(
+    buf: &mut [u8],
+    src: usize,
+    dst_pos: &mut usize,
+    len: usize,
+) {
     debug_assert!(src + len <= *dst_pos);
     debug_assert!(*dst_pos + len <= buf.len());
     unsafe {
