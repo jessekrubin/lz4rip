@@ -669,3 +669,265 @@ mod test {
         let _ = decompress_into_sink_with_dict::<false>(&input, &mut sink, b"");
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use lz4rip_core::MINMATCH;
+
+    // -- End-to-end proofs (slow path, all inputs exhaustive) --
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn decompress_4byte_no_oob() {
+        let input: [u8; 4] = kani::any();
+        let mut output = [0u8; 16];
+        let mut sink = SliceSink::new(&mut output, 0);
+        let _ = decompress_internal::<false, _>(&input, &mut sink, b"");
+    }
+
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn decompress_6byte_no_oob() {
+        let input: [u8; 6] = kani::any();
+        let mut output = [0u8; 20];
+        let mut sink = SliceSink::new(&mut output, 0);
+        let _ = decompress_internal::<false, _>(&input, &mut sink, b"");
+    }
+
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn decompress_dict_6byte_no_oob() {
+        let input: [u8; 6] = kani::any();
+        let dict: [u8; 8] = kani::any();
+        let mut output = [0u8; 20];
+        let mut sink = SliceSink::new(&mut output, 0);
+        let _ = decompress_internal::<true, _>(&input, &mut sink, &dict);
+    }
+
+    // -- Fast-path proofs --
+    //
+    // The end-to-end proofs above only exercise the slow path (inputs
+    // < 19 bytes give safe_input_pos = 0). These proofs model a single
+    // fast-path iteration with symbolic indices and token, proving the
+    // safe-region margins guarantee every unsafe primitive call is
+    // in-bounds.
+
+    /// Pure arithmetic proof: safe-region margins (input.len()-18 for
+    /// input, capacity-34 for output) are sufficient for all fast-path
+    /// reads and copies, for any buffer sizes 19..=1024.
+    #[kani::proof]
+    fn fast_path_margins_sufficient() {
+        let input_len: usize = kani::any();
+        let output_cap: usize = kani::any();
+        kani::assume(input_len >= 19 && input_len <= 1024);
+        kani::assume(output_cap >= 35 && output_cap <= 1024);
+
+        let safe_input_pos = input_len - 18;
+        let safe_output_pos = output_cap - 34;
+
+        let token_pos: usize = kani::any();
+        let output_pos: usize = kani::any();
+        kani::assume(token_pos < safe_input_pos);
+        kani::assume(output_pos < safe_output_pos);
+
+        let token: u8 = kani::any();
+        kani::assume((token & 0xF0) != 0xF0);
+        let literal_length = (token >> 4) as usize;
+        let match_nib = (token & 0xF) as usize;
+
+        let input_pos = token_pos + 1;
+
+        // read_byte_inbounds
+        assert!(token_pos < input_len);
+        // read_u16_inbounds
+        assert!(input_pos + literal_length + 2 <= input_len);
+        // wild_copy_16 src
+        assert!(input_pos + 16 <= input_len);
+        // wild_copy_16 dst
+        assert!(output_pos + 16 <= output_cap);
+        // literal_length <= 16
+        assert!(literal_length <= 16);
+
+        let pos_after = output_pos + literal_length;
+
+        // Short match (match_nib < 15): margins alone guarantee safety
+        if match_nib < 15 {
+            let match_length = MINMATCH + match_nib;
+            // wild_match_copy_18
+            assert!(pos_after + 18 <= output_cap);
+            assert!(match_length <= 18);
+            // copy_within_{nonoverlap,overlapping}
+            assert!(pos_after + match_length <= output_cap);
+        }
+        // Long match (match_nib == 15): match_length is unbounded,
+        // but decompress.rs has an explicit bounds check:
+        //   if *pos + match_length > out.len() { return Err(...) }
+        // So the margins only need to cover wild_copy_16 (the literal),
+        // which the assertions above already verify.
+    }
+
+    /// Fast-path short match: run actual unsafe primitives on zeroed
+    /// buffers with symbolic positions and token. Covers
+    /// read_byte_inbounds, read_u16_inbounds, wild_copy_16,
+    /// wild_match_copy_18, copy_within_nonoverlap,
+    /// copy_within_overlapping.
+    #[kani::proof]
+    #[kani::unwind(7)]
+    fn fast_path_short_match_no_oob() {
+        let input = [0u8; 40];
+        let mut output = [0u8; 52];
+
+        let token_pos: usize = kani::any();
+        let output_pos: usize = kani::any();
+        let safe_input_pos = 40 - 18; // 22
+        let safe_output_pos = 52 - 34; // 18
+        kani::assume(token_pos < safe_input_pos);
+        kani::assume(output_pos < safe_output_pos);
+
+        let token: u8 = kani::any();
+        kani::assume((token & 0xF0) != 0xF0);
+
+        let input_pos = token_pos + 1;
+        let literal_length = (token >> 4) as usize;
+        let match_nib = (token & 0xF) as usize;
+        kani::assume(match_nib != 15); // short match
+
+        // read_byte_inbounds
+        let _ = paranoid_unsafe_call!(crate::primitives::read_byte_inbounds(&input, token_pos));
+
+        // read_u16_inbounds
+        let _ = paranoid_unsafe_call!(crate::primitives::read_u16_inbounds(
+            &input,
+            input_pos + literal_length
+        ));
+
+        // wild_copy_16
+        let mut pos = output_pos;
+        paranoid_unsafe_call!(crate::primitives::wild_copy_16(
+            &input,
+            input_pos,
+            &mut output,
+            &mut pos,
+            literal_length
+        ));
+
+        let match_length = MINMATCH + match_nib;
+
+        let offset: usize = kani::any();
+        kani::assume(offset >= 1 && offset <= pos);
+        let start = pos - offset;
+
+        if offset >= 8 {
+            paranoid_unsafe_call!(crate::primitives::wild_match_copy_18(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        } else if offset == 1 {
+            let val = output[start];
+            output[pos..pos + match_length].fill(val);
+        } else if match_length <= offset {
+            paranoid_unsafe_call!(crate::primitives::copy_within_nonoverlap(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        } else {
+            paranoid_unsafe_call!(crate::primitives::copy_within_overlapping(
+                &mut output,
+                start,
+                &mut pos,
+                match_length,
+                offset,
+            ));
+        }
+    }
+
+    /// Fast-path long match: symbolic match_length after the explicit
+    /// bounds check, then each wild_copy_match variant and the
+    /// overlapping/nonoverlap fallbacks.
+    ///
+    /// The offset==1 fill path is excluded: it uses safe slice::fill
+    /// with no unsafe primitives.
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn fast_path_long_match_no_oob() {
+        let input = [0u8; 40];
+        let mut output = [0u8; 64];
+
+        let token_pos: usize = kani::any();
+        let output_pos: usize = kani::any();
+        let safe_input_pos = 40 - 18; // 22
+        let safe_output_pos = 64 - 34; // 30
+        kani::assume(token_pos < safe_input_pos);
+        kani::assume(output_pos < safe_output_pos);
+
+        let token: u8 = kani::any();
+        kani::assume((token & 0xF0) != 0xF0);
+
+        let input_pos = token_pos + 1;
+        let literal_length = (token >> 4) as usize;
+
+        let mut pos = output_pos;
+        paranoid_unsafe_call!(crate::primitives::wild_copy_16(
+            &input,
+            input_pos,
+            &mut output,
+            &mut pos,
+            literal_length
+        ));
+
+        let match_length: usize = kani::any();
+        kani::assume(match_length >= MINMATCH + 15);
+        kani::assume(match_length <= 48);
+
+        // Explicit bounds check (mirrors decompress.rs)
+        kani::assume(pos + match_length <= output.len());
+
+        let offset: usize = kani::any();
+        kani::assume(offset >= 2 && offset <= pos);
+        let start = pos - offset;
+
+        if offset >= 32 && pos + match_length + 32 <= output.len() {
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_32(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        } else if offset >= 16 && pos + match_length + 16 <= output.len() {
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_16(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        } else if offset >= 8 && pos + match_length + 8 <= output.len() {
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_8(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        } else if match_length > offset {
+            paranoid_unsafe_call!(crate::primitives::copy_within_overlapping(
+                &mut output,
+                start,
+                &mut pos,
+                match_length,
+                offset,
+            ));
+        } else {
+            paranoid_unsafe_call!(crate::primitives::copy_within_nonoverlap(
+                &mut output,
+                start,
+                &mut pos,
+                match_length
+            ));
+        }
+        let _ = pos;
+    }
+}
