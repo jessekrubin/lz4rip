@@ -98,7 +98,7 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
     loop {
         let in_safe_region = input_pos < safe_input_pos;
         let token = if in_safe_region {
-            crate::primitives::read_byte_inbounds(input, input_pos)
+            paranoid_unsafe_call!(crate::primitives::read_byte_inbounds(input, input_pos))
         } else {
             *input
                 .get(input_pos)
@@ -117,14 +117,22 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             let literal_length = (token >> 4) as usize;
             let match_nib = (token & 0xF) as usize;
 
-            let offset =
-                crate::primitives::read_u16_inbounds(input, input_pos + literal_length) as usize;
+            let offset = paranoid_unsafe_call!(crate::primitives::read_u16_inbounds(
+                input,
+                input_pos + literal_length
+            )) as usize;
             if offset == 0 {
                 return Err(DecompressError::OffsetZero);
             }
 
             let (out, pos) = output.output_mut_with_pos();
-            crate::primitives::wild_copy_16(input, input_pos, out, pos, literal_length);
+            paranoid_unsafe_call!(crate::primitives::wild_copy_16(
+                input,
+                input_pos,
+                out,
+                pos,
+                literal_length
+            ));
             input_pos += literal_length + 2;
 
             if match_nib != 15 {
@@ -149,21 +157,31 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                     return Err(DecompressError::OffsetOutOfBounds);
                 }
                 if offset >= 8 {
-                    crate::primitives::wild_match_copy_18(out, start, pos, match_length);
+                    paranoid_unsafe_call!(crate::primitives::wild_match_copy_18(
+                        out,
+                        start,
+                        pos,
+                        match_length
+                    ));
                 } else if offset == 1 {
                     let val = out[start];
                     out[*pos..*pos + match_length].fill(val);
                     *pos += match_length;
                 } else if match_length <= offset {
-                    crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
+                    paranoid_unsafe_call!(crate::primitives::copy_within_nonoverlap(
+                        out,
+                        start,
+                        pos,
+                        match_length
+                    ));
                 } else {
-                    crate::primitives::copy_within_overlapping(
+                    paranoid_unsafe_call!(crate::primitives::copy_within_overlapping(
                         out,
                         start,
                         pos,
                         match_length,
                         offset,
-                    );
+                    ));
                 }
                 continue;
             }
@@ -196,27 +214,47 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
                 return Err(DecompressError::OffsetOutOfBounds);
             }
             if offset >= 32 && *pos + match_length + 32 <= out.len() {
-                crate::primitives::wild_copy_match_32(out, start, pos, match_length);
+                paranoid_unsafe_call!(crate::primitives::wild_copy_match_32(
+                    out,
+                    start,
+                    pos,
+                    match_length
+                ));
             } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
-                crate::primitives::wild_copy_match_16(out, start, pos, match_length);
+                paranoid_unsafe_call!(crate::primitives::wild_copy_match_16(
+                    out,
+                    start,
+                    pos,
+                    match_length
+                ));
             } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
-                crate::primitives::wild_copy_match_8(out, start, pos, match_length);
+                paranoid_unsafe_call!(crate::primitives::wild_copy_match_8(
+                    out,
+                    start,
+                    pos,
+                    match_length
+                ));
             } else if match_length > offset {
                 if offset == 1 {
                     let val = out[start];
                     out[*pos..*pos + match_length].fill(val);
                     *pos += match_length;
                 } else {
-                    crate::primitives::copy_within_overlapping(
+                    paranoid_unsafe_call!(crate::primitives::copy_within_overlapping(
                         out,
                         start,
                         pos,
                         match_length,
                         offset,
-                    );
+                    ));
                 }
             } else {
-                crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
+                paranoid_unsafe_call!(crate::primitives::copy_within_nonoverlap(
+                    out,
+                    start,
+                    pos,
+                    match_length
+                ));
             }
             continue;
         }
@@ -246,9 +284,21 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             if input_pos + literal_length + 32 <= input.len()
                 && *pos + literal_length + 32 <= out.len()
             {
-                crate::primitives::wild_copy_literals(input, input_pos, out, pos, literal_length);
+                paranoid_unsafe_call!(crate::primitives::wild_copy_literals(
+                    input,
+                    input_pos,
+                    out,
+                    pos,
+                    literal_length
+                ));
             } else {
-                crate::primitives::copy_from_src(input, input_pos, out, pos, literal_length);
+                paranoid_unsafe_call!(crate::primitives::copy_from_src(
+                    input,
+                    input_pos,
+                    out,
+                    pos,
+                    literal_length
+                ));
             }
             input_pos += literal_length;
         }
@@ -299,21 +349,47 @@ pub(crate) fn decompress_internal<const USE_DICT: bool, S: Sink>(
             return Err(DecompressError::OffsetOutOfBounds);
         }
         if offset >= 32 && *pos + match_length + 32 <= out.len() {
-            crate::primitives::wild_copy_match_32(out, start, pos, match_length);
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_32(
+                out,
+                start,
+                pos,
+                match_length
+            ));
         } else if offset >= 16 && *pos + match_length + 16 <= out.len() {
-            crate::primitives::wild_copy_match_16(out, start, pos, match_length);
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_16(
+                out,
+                start,
+                pos,
+                match_length
+            ));
         } else if offset >= 8 && *pos + match_length + 8 <= out.len() {
-            crate::primitives::wild_copy_match_8(out, start, pos, match_length);
+            paranoid_unsafe_call!(crate::primitives::wild_copy_match_8(
+                out,
+                start,
+                pos,
+                match_length
+            ));
         } else if match_length > offset {
             if offset == 1 {
                 let val = out[start];
                 out[*pos..*pos + match_length].fill(val);
                 *pos += match_length;
             } else {
-                crate::primitives::copy_within_overlapping(out, start, pos, match_length, offset);
+                paranoid_unsafe_call!(crate::primitives::copy_within_overlapping(
+                    out,
+                    start,
+                    pos,
+                    match_length,
+                    offset
+                ));
             }
         } else {
-            crate::primitives::copy_within_nonoverlap(out, start, pos, match_length);
+            paranoid_unsafe_call!(crate::primitives::copy_within_nonoverlap(
+                out,
+                start,
+                pos,
+                match_length
+            ));
         }
     }
     Ok(output.pos() - initial_output_pos)

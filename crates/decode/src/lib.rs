@@ -2,6 +2,7 @@
 
 #![deny(warnings)]
 #![deny(missing_docs)]
+#![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "nightly", allow(internal_features))]
 #![cfg_attr(feature = "nightly", feature(core_intrinsics))]
@@ -10,7 +11,20 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[forbid(unsafe_code)]
+#[cfg(not(feature = "paranoid"))]
+macro_rules! paranoid_unsafe_call {
+    ($e:expr) => {
+        unsafe { $e }
+    };
+}
+
+#[cfg(feature = "paranoid")]
+macro_rules! paranoid_unsafe_call {
+    ($e:expr) => {
+        $e
+    };
+}
+
 mod decompress;
 pub(crate) mod primitives;
 

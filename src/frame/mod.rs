@@ -19,7 +19,20 @@
 
 use std::{fmt, io};
 
-#[cfg_attr(feature = "paranoid", forbid(unsafe_code))]
+#[cfg(not(feature = "paranoid"))]
+macro_rules! paranoid_unsafe_call {
+    ($e:expr) => {
+        unsafe { $e }
+    };
+}
+
+#[cfg(feature = "paranoid")]
+macro_rules! paranoid_unsafe_call {
+    ($e:expr) => {
+        $e
+    };
+}
+
 pub(crate) mod compress;
 #[forbid(unsafe_code)]
 pub(crate) mod decompress;
