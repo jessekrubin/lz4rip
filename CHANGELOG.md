@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-13
+
+### Changed
+
+- Functions with caller-upheld preconditions are now `unsafe fn` in
+  default builds. Each unsafe operation inside the body requires its own
+  explicit `unsafe {}` block (`#![deny(unsafe_op_in_unsafe_fn)]`).
+  Callers wrap each call in `paranoid_unsafe_call!(...)`, a
+  cfg-conditional macro that expands to `unsafe { expr }` in default
+  builds and passes through `expr` in paranoid builds.
+
 ## [0.11.0] - 2026-07-11
 
 ### Added
