@@ -81,6 +81,25 @@ GitHub releases. Configuration lives in `release-plz.toml`.
 4. **Merge the release PR.** release-plz tags and publishes to
    crates.io automatically.
 
+## Kani
+
+Proves decompressor bounds safety via bounded model checking. Requires
+[Kani](https://model-checking.github.io/kani/) (`cargo install --locked kani-verifier && cargo kani setup`).
+
+Six proof harnesses in `crates/decode/src/decompress.rs`: three exhaustive
+end-to-end proofs (4-byte, 6-byte, dict 6-byte inputs) and three fast-path
+margin/primitive proofs.
+
+```sh
+# all harnesses, single-threaded (~25 min)
+cargo kani -p lz4rip-decode
+
+# all harnesses in parallel (~15 min on 6 cores)
+cargo kani -p lz4rip-decode -j 6 --output-format terse
+```
+
+The `-j` flag requires `--output-format terse`.
+
 ## Fuzzing
 
 Requires nightly:
